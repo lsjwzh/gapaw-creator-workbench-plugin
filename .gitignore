@@ -1,0 +1,17 @@
+# 需求资料、运行数据和个人配置留在项目根目录，不进入版本控制。
+/requirements/
+/data/
+/runtime/
+/logs/
+/artifacts/
+/backups/
+/.multicc-worktrees/
+.env
+.env.*
+!.env.example
+*.local.json
+# 构建与编辑器派生产物。
+/target/
+/node_modules/
+/dist/
+.DS_Store
