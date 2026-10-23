@@ -1,54 +1,60 @@
 # 达人工作台插件独立项目
 
-项目目录：`/Users/Zhuanz/Downloads/gapasea-all-in-one/code/claudecode/gapaw-creator-workbench-plugin`
-
-当前状态：独立需求承载目录已建立；尚未开发插件，尚未初始化 Git，尚未登记为 MultiCC 项目。会话由用户手动迁移。
+当前已提供可安装的开发版结构：Rust 命令程序、插件清单、中文操作界面、专属目录绑定、持久选人操作记录及宿主任务投递。使用范围与安装方式见 [插件说明](PLUGIN_README.md)。此前的 [交互原型](prototype/selection-setup.html) 仍是模拟演示，不承担真实操作。
 
 ## 产品方向
 
-以现有 `gapaw-creator-outreach` 达人工作台为插件主体。用户在工作台选择达人、活动、草稿或对话并发起业务操作；MultiCC 承接任务和交互，技能执行具体工作，结果结构化回写原业务对象。
+以现有 Gapaw 达人工作台为业务主体。工作台保存业务事实，MultiCC 保存任务和交互，技能负责执行。当前先实现“按回本率选人”的提示词入口，不采用多条件筛选表格；选人任务进入初始化时绑定的持久目录。
 
-工作台保存业务事实；MultiCC 保存执行和会话状态。聊天中的“完成”不能代替工作台的业务结果。
+原有达人工作台通过 `/services/gapaw-creator-outreach/` 访问。此版本保留该入口，没有迁移生产数据库。平台读取、Chrome 自动化桥接和候选结构化回写仍未接入；任务受理不能替代业务结果。
 
-## 需求资料
+## 目录结构
 
-- [当前规划：工作台为核心（第二版）](requirements/workbench-plugin-plan-v2.md)
-- [背景调研：外部依赖与历史实现（第一版）](requirements/external-dependencies-assessment-v1.md)
-- [项目开发约束](AGENTS.md)
+- `src/main.rs`：Rust 配置、路径检查、SQLite 操作记录、两阶段回执与幂等逻辑。
+- `plugin.json`：宿主识别清单、命令声明、界面入口及目录初始化要求。
+- `ui/`：中文页面，调用宿主插件命令和既有任务接口。
+- `resources/selection-method.md`：回本率方法提示词；不包含真实报价、名单或成本。
+- `scripts/package_plugin.py`：构建、校验和复制工具；不承担后端业务。
+- `tests/`：发行与界面行为验证。
+- `docs/`、`prototype/`：方案与早期交互原型。
 
-第二版的产品架构和实施顺序优先。第一版作为外部依赖调查与历史实现参考，不把其中账号或接口能力视为已经联通。
+## 构建与复制
 
-需求资料存放在本项目根目录的 `requirements/`，不纳入版本控制。未来在 MultiCC 任务工作区中开发时，使用以下绝对路径读取，不能把忽略文件搬进临时工作区：
+在本任务工作区执行：
 
-- `/Users/Zhuanz/Downloads/gapasea-all-in-one/code/claudecode/gapaw-creator-workbench-plugin/requirements/workbench-plugin-plan-v2.md`
-- `/Users/Zhuanz/Downloads/gapasea-all-in-one/code/claudecode/gapaw-creator-workbench-plugin/requirements/external-dependencies-assessment-v1.md`
+```sh
+cargo test --locked --target-dir=/tmp/gapaw-creator-plugin-target
+python3 tests/package.test.py
+node --test tests/ui.test.cjs
+python3 scripts/package_plugin.py build
+```
 
-原资料保留在 MultiCC 的持久数据目录中作为历史副本；本独立项目后续以这里的需求文件为工作入口。
+构建后可用真实 Rust 程序联调页面投递模块，宿主接口由隔离测试替代，不创建真实任务：
 
-## 首个开发切片
+```sh
+GAPAW_TEST_BINARY=/tmp/gapaw-creator-plugin-target/release/gapaw-creator-workbench node --test tests/integration.test.cjs
+python3 tests/ui-browser.test.py
+```
 
-在现有达人档案或列表中选择对象 → 发起“生成邀约草稿” → 关联 MultiCC 任务 → 在任务里补充条件 → 草稿写回对应档案 → 用户审阅、采用或继续修改。
+浏览器验收需要 Python Playwright 与 Chromium，macOS 默认也可使用已安装的 Google Chrome；可通过 `GAPAW_TEST_CHROME` 指定可执行文件。测试使用独立浏览器进程和拦截接口，验证初始化、发送、刷新恢复及手机布局，不操作用户登录窗口。
 
-首期验收包括上下文范围、任务关联、结果回写、版本冲突、重复请求去重及页面刷新恢复。随后扩展核验资料、总结对话、邮件往来、选人和分渠道私信。
+构建器自动定位主项目目录，在其 `dist/` 保留完整插件目录和当前平台 ZIP；构建缓存放 `/tmp`。不把忽略的发行文件或运行数据放进任务工作区。
 
-## 参考资产与修改边界
+```sh
+python3 scripts/package_plugin.py install-debug \
+  --package /绝对项目路径/dist/gapaw-creator-workbench \
+  --plugin-root /绝对宿主路径/plugins
+```
 
-- 现有工作台入口：`/services/gapaw-creator-outreach/`。访问地址使用用户当前 MultiCC 的入口，不在产品中写死本机地址。
-- 现有工作台源码：`/Users/Zhuanz/Downloads/gapasea-all-in-one/code/gapasea-marketing/tools/creator_outreach/`。
-- 宿主源码：`/Users/Zhuanz/Downloads/gapasea-all-in-one/code/claudecode/multicc/`。
+复制前后校验完整文件哈希和执行权限；拒绝覆盖无法识别或被手动修改的目标。重新构建后需要再次复制，两个目录不是软链接。随后在 MultiCC 插件面板刷新即可发现，不需要另起服务。
 
-上述源码为只读参考。插件实现放在本独立项目；不要直接修改宿主主工作区、现有线上工作台或持久运行副本。确需宿主适配时，使用宿主自己的独立任务工作区处理。
+当前运行宿主兼容旧版按需命令通道。新增安装和目录生命周期功能已在宿主独立分支实现，尚未部署；本插件同时兼容旧版插件内目录绑定与新版宿主绑定。
 
-本目录没有复制真实达人数据库、联系人、私人消息、账号配置、登录态或密钥，也没有建立指向生产数据的可写链接。
+## 需求与边界
 
-## 开发与迁移约束
+开发约束见 [AGENTS.md](AGENTS.md)。当前需求位于主项目根目录的 `requirements/workbench-plugin-plan-v2.md`，优先于第一版调研；该目录不纳入版本控制，也不进入发行包。
 
-- 新增后端业务采用 Rust；前端可以复用现有工作台设计。Node 或旧 Python 仅保留必要的迁移兼容范围。
-- 复用 MultiCC 任务、会话、技能、人机交互和凭据能力；不再另建一套智能体调度系统。
-- 邮件、普通私信、Shop 联盟聊天／邀请分别验证；发送授权绑定对象、账号、渠道和内容版本。
-- 持久数据、密钥和需求文件留在独立项目根目录的用途目录，通过绝对路径访问；不放临时工作区。
-- 所有新增 Git 提交遵守 `AGENTS.md`，身份唯一来源是 `commit-policy.json`；本次未创建任何提交。
+- [回本率提示词、目录与任务方案](docs/selection-data-and-connections.md)
+- [宿主安装与生命周期方案](docs/plugin-installation-and-lifecycle.md)
 
-## 会话迁移后
-
-用户把此目录添加为 MultiCC 项目并手动移动会话。下一轮先核对新的当前目录和适用约束，再从第二版规划的首个开发切片开始。本轮仅准备目录和资料，不执行会话迁移、插件安装、服务重启或对外业务操作。
+本项目是独立插件仓库；现有工作台与 MultiCC 主代码只作参考。后端业务默认 Rust，页面使用 JavaScript，Python 仅用于构建工具。插件源码不携带真实达人数据库、联系人、私人消息、账号配置、登录态或密钥。

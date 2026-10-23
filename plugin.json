@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "id": "gapaw-creator-workbench",
+  "name": "Gapaw 达人工作台",
+  "version": "0.1.0",
+  "description": "套用回本率选人方法，向专属目录派发 MultiCC 任务并保存关联与回执。",
+  "engine": {
+    "type": "command",
+    "binary": "bin/gapaw-creator-workbench",
+    "binaryPlatformDir": "bin"
+  },
+  "commands": ["status", "configure", "prepare-operation", "record-dispatch", "record-error", "list-operations"],
+  "ui": "ui/index.html",
+  "setup": { "workspace": true }
+}

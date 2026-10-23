@@ -1,0 +1,16 @@
+[package]
+name = "gapaw-creator-workbench"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+url = "2"
+
+[profile.release]
+strip = true
+lto = "thin"
