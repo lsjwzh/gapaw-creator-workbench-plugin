@@ -1,0 +1,328 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "选人任务结果提交契约",
+  "description": "保存到原任务操作记录的报告快照；不采纳到正式达人库。服务器另校验任务归属、版本、时间区间、重复身份和计算口径。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "operationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "taskId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "resultId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "expectedRevision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "report": {
+      "$ref": "#/$defs/report"
+    }
+  },
+  "required": [
+    "operationId",
+    "taskId",
+    "resultId",
+    "expectedRevision",
+    "report"
+  ],
+  "$defs": {
+    "report": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "methodVersion": {
+          "const": "roi-selection-v1"
+        },
+        "generatedAt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "format": "date-time"
+        },
+        "period": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "start": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 10,
+              "format": "date"
+            },
+            "end": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 10,
+              "format": "date"
+            },
+            "timeZone": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "IANA时区，例如Asia/Bangkok；视频发表时间必须落在该时区的起止日期内，包含边界日。"
+            }
+          },
+          "required": [
+            "start",
+            "end",
+            "timeZone"
+          ]
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        },
+        "coverage": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "missingFields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "maxItems": 100,
+          "minItems": 0
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/candidate"
+          },
+          "maxItems": 100,
+          "minItems": 0
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "methodVersion",
+        "generatedAt",
+        "period",
+        "currency",
+        "coverage",
+        "missingFields",
+        "candidates"
+      ]
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "platform": {
+          "const": "tiktok"
+        },
+        "creatorId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "handle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "profileUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "format": "uri",
+          "description": "仅允许 http/https，无账号密码；不代表已验证来源内容。"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "format": "uri",
+                "description": "仅允许 http/https，无账号密码；不代表已验证来源内容。"
+              },
+              "capturedAt": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "format": "date-time"
+              },
+              "note": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              }
+            },
+            "required": [
+              "url",
+              "capturedAt",
+              "note"
+            ]
+          },
+          "maxItems": 50,
+          "minItems": 1
+        },
+        "missingFields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "maxItems": 100,
+          "minItems": 0
+        },
+        "videos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/video"
+          },
+          "maxItems": 2000,
+          "minItems": 0
+        }
+      },
+      "required": [
+        "platform",
+        "creatorId",
+        "handle",
+        "profileUrl",
+        "reason",
+        "sources",
+        "missingFields",
+        "videos"
+      ]
+    },
+    "video": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "videoId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "format": "uri",
+          "description": "仅允许 http/https，无账号密码；不代表已验证来源内容。"
+        },
+        "publishedAt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "format": "date-time"
+        },
+        "contributionRate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^-?(?:0|[1-9][0-9]{0,17})(?:\\.[0-9]{1,12})?$",
+          "description": "精确十进制字符串，最多18位整数、12位小数；未知必须显式null，不允许科学计数或用0代替未知。"
+        },
+        "sales": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "organic",
+                  "ads",
+                  "total"
+                ]
+              },
+              "gmv": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?(?:0|[1-9][0-9]{0,17})(?:\\.[0-9]{1,12})?$",
+                "description": "精确十进制字符串，最多18位整数、12位小数；未知必须显式null，不允许科学计数或用0代替未知。"
+              },
+              "commissionRate": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?(?:0|[1-9][0-9]{0,17})(?:\\.[0-9]{1,12})?$",
+                "description": "精确十进制字符串，最多18位整数、12位小数；未知必须显式null，不允许科学计数或用0代替未知。"
+              }
+            },
+            "required": [
+              "kind",
+              "gmv",
+              "commissionRate"
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 1
+        },
+        "adSpend": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^-?(?:0|[1-9][0-9]{0,17})(?:\\.[0-9]{1,12})?$",
+          "description": "精确十进制字符串，最多18位整数、12位小数；未知必须显式null，不允许科学计数或用0代替未知。"
+        },
+        "fixedFee": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^-?(?:0|[1-9][0-9]{0,17})(?:\\.[0-9]{1,12})?$",
+          "description": "精确十进制字符串，最多18位整数、12位小数；未知必须显式null，不允许科学计数或用0代替未知。"
+        },
+        "sampleCost": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^-?(?:0|[1-9][0-9]{0,17})(?:\\.[0-9]{1,12})?$",
+          "description": "精确十进制字符串，最多18位整数、12位小数；未知必须显式null，不允许科学计数或用0代替未知。"
+        }
+      },
+      "required": [
+        "videoId",
+        "url",
+        "publishedAt",
+        "contributionRate",
+        "sales",
+        "adSpend",
+        "fixedFee",
+        "sampleCost"
+      ],
+      "description": "成交额和费用非负；佣金率0到1、贡献率不大于1。sales渠道不可重复，total不能与organic/ads并存。全报告最多2000视频且视频ID不得重复；有任意未知参与计算则该视频结余未知。"
+    }
+  }
+}

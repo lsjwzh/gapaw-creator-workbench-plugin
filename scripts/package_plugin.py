@@ -215,6 +215,9 @@ def build(source, output=None, binary=None):
         shutil.copy2(readme, stage / "README.md")
         for name in ("ui", "resources", "src"):
             copy_tree(source / name, stage / name)
+        # 配套桥接源码与升级工具随开发包保留，不自动安装或执行。
+        if (source / "integrations").exists():
+            copy_tree(source / "integrations", stage / "integrations")
         program = stage / "bin" / platform_name / binary_name
         program.parent.mkdir(parents=True)
         shutil.copyfile(binary, program)

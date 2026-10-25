@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>达人工作台 · 按回本率选人</title>
   <link rel="stylesheet" href="./style.css">
+  <script src="./data-workflow.js" defer></script>
   <script src="./app.js" defer></script>
 </head>
 <body>
@@ -43,13 +44,18 @@
           </form>
         </section>
         <aside>
-          <section id="connections" class="card" aria-labelledby="connections-title"><div class="section-head"><h2 id="connections-title">连接设置</h2><button id="refresh-connections" class="subtle" type="button">刷新</button></div><div id="connection-list"><p class="hint">正在读取已安装插件…</p></div><p class="hint">连接状态不影响发起任务。实际读取平台前，仍需检查登录、权限与数据可读性。</p></section>
-          <section class="card help-card"><h2>工作如何继续</h2><ol><li>这里发送任务并保存目录与提示词快照。</li><li>进入 MultiCC 原任务，补充信息、处理登录或确认。</li><li>现有达人工作台继续承载业务记录。自动化读取与业务结果回写尚待接入。</li></ol></section>
+          <section id="connections" class="card" aria-labelledby="connections-title">
+            <div class="section-head"><h2 id="connections-title">连接设置</h2><button id="refresh-connections" class="subtle" type="button">刷新检测</button></div>
+            <div class="browser-picker"><label for="browser-profile">专用 Chrome 身份</label><select id="browser-profile" disabled><option value="">正在读取身份…</option></select><div class="browser-actions"><button id="save-browser" class="secondary" type="button" disabled>保存绑定</button><button id="unbind-browser" class="subtle" type="button" disabled>解除绑定</button></div><p class="hint">切换默认身份只影响新任务，历史任务保留原绑定。</p></div>
+            <button id="probe-browser" class="secondary" type="button" disabled>检测只读连接</button><p class="hint">仅检测已绑定身份的连接，不启动浏览器，也不读取页面。连接成功不代表出口或平台字段已验证。</p>
+            <div id="connection-list"><p class="hint">正在读取环境状态…</p></div><p class="hint">未绑定也可发起提示词任务，在原任务补充资料。本插件不会回退普通浏览器；页面列表与文字需在任务记录中手动读取。</p>
+          </section>
+          <section class="card help-card"><h2>工作如何继续</h2><ol><li>这里发送任务并保存目录与提示词快照。</li><li>查看本次任务的读取要求，再进入 MultiCC 原任务补充资料、处理登录或确认。</li><li>选择结果文件后先只读预检，核对样本、费用缺项与来源提示，再点击保存报告。报告仍待采纳，正式达人库回写尚未接入。</li></ol></section>
         </aside>
       </div>
       <section class="history" aria-labelledby="history-title"><div class="section-head"><h2 id="history-title">任务记录</h2><span id="history-count" class="hint"></span></div><div id="operations"><p class="empty">正在读取历史任务…</p></div></section>
     </main>
-    <footer>达人工作台插件 · 任务与配置保存在本机，平台数据连接单独配置</footer>
+    <footer>任务与报告暂存可用 · 兼容桥接支持手动只读页面 · 平台结构化采集与正式达人库采纳仍待接入</footer>
   </div>
 </body>
 </html>

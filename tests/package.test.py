@@ -32,6 +32,9 @@ class PackageTests(unittest.TestCase):
             "src/main.rs": "fn main() {}\n",
             "ui/index.html": "<!doctype html><title>达人工作台</title>",
             "resources/prompt.txt": "按回本率选人",
+            "integrations/chrome-read-bridge/README.md": "仅在隔离副本应用升级",
+            "integrations/chrome-read-bridge/read_bridge.rs": "// 配套桥接源码\n",
+            "integrations/chrome-read-bridge/data/private.json": "不得发行",
             "requirements/private.txt": "不得发行",
             "data/private.json": "不得发行",
             "docs/private.md": "不得发行",
@@ -66,6 +69,8 @@ class PackageTests(unittest.TestCase):
         self.assertFalse((directory / "requirements").exists())
         self.assertFalse((directory / "ui/.env").exists())
         self.assertFalse((directory / "ui/data").exists())
+        self.assertTrue((directory / "integrations/chrome-read-bridge/read_bridge.rs").is_file())
+        self.assertFalse((directory / "integrations/chrome-read-bridge/data").exists())
         binary_relative = "bin/" + PACKAGE.host_platform() + "/" + PACKAGE.PLUGIN_ID
         self.assertTrue((directory / binary_relative).stat().st_mode & stat.S_IXUSR)
         with zipfile.ZipFile(archive) as zipped:

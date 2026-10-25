@@ -6,12 +6,21 @@ use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 use uuid::Uuid;
+mod bridge;
+mod browser;
+mod observations;
+mod platform;
+mod results;
+mod workbench;
+mod workbench_store;
 
 const ID: &str = "gapaw-creator-workbench";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const METHOD_VERSION: &str = "roi-selection-v1";
 const TEMPLATE: &str = include_str!("../resources/selection-method.md");
-const BOUNDARY: &str = "\n\n【达人工作台操作边界】\n本次仅执行选人和资料核验，不发送邮件、私信、正式联盟邀请，不修改已确认的报价或合作事实。使用已确认成本与未舍入回本率，不将缺失值补零。当前插件的平台适配器、浏览器桥接和结构化候选回写尚未实现，禁止声称已连接或已回写；依赖缺失时在原任务请求补充。宿主受理消息不等于选人完成。\n";
+const BOUNDARY: &str = "\n\n【达人工作台操作边界】\n本次仅执行选人和资料核验，不发送邮件、私信、正式联盟邀请，不修改已确认的报价或合作事实。使用已确认成本与未舍入回本率，不将缺失值补零。插件支持受限页面读取及离线平台响应标准化，导入不代表实时采集、账号可读或全量已核验。来源编号保留命名空间，不能按昵称合并身份。报告和观测保存到原操作记录，不等于正式入选。工作台候选区保存是另一个明确的用户操作，未经授权不调用 adopt-result；即使候选入库且读回成功，身份、指标与费用仍待核验，不能声称已更新旧达人档案或已确认合作事实。实际连接和业务回执分别核对，依赖缺失时在原任务请求补充。宿主受理消息不等于选人完成。\n";
+const RESULT_INSTRUCTIONS: &str = include_str!("../resources/result-instructions.md");
+const BROWSER_INSTRUCTIONS: &str = include_str!("../resources/browser-instructions.md");
 type Result<T> = std::result::Result<T, String>;
 
 fn now() -> String {
@@ -86,6 +95,9 @@ fn open_db(path: &Path, write: bool) -> Result<Option<Connection>> {
         }
         db.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS operations(id TEXT PRIMARY KEY,request_id TEXT NOT NULL UNIQUE,request TEXT NOT NULL,value TEXT NOT NULL,created_at TEXT NOT NULL);")
             .map_err(|e| format!("无法初始化数据结构：{e}"))?;
+        results::init(&db)?;
+        observations::init(&db)?;
+        workbench::init(&db)?;
     }
     Ok(Some(db))
 }
@@ -318,14 +330,65 @@ fn execute(
     path: &Path,
     host: Option<(String, String)>,
 ) -> Result<Value> {
+    if input.to_string().len() > 1024 * 1024 {
+        return Err("命令输入超过 1 MiB 限制".into());
+    }
+    if [
+        "result-contract",
+        "get-result",
+        "submit-result",
+        "validate-result",
+    ]
+    .contains(&command)
+    {
+        return results::execute(command, input, path);
+    }
+    if command == "platform-contract" {
+        return platform::execute(input, path);
+    }
+    if [
+        "workbench-status",
+        "prepare-adoption",
+        "adopt-result",
+        "get-adoption",
+        "reconcile-adoption",
+        "workbench-list",
+        "workbench-batch",
+    ]
+    .contains(&command)
+    {
+        return workbench::execute(command, input, path);
+    }
+    if [
+        "observation-contract",
+        "preview-observation",
+        "submit-observation",
+        "get-observations",
+    ]
+    .contains(&command)
+    {
+        return observations::execute(command, input, path);
+    }
+    if [
+        "browser-status",
+        "bind-browser",
+        "browser-probe",
+        "browser-pages",
+        "browser-read-page",
+    ]
+    .contains(&command)
+    {
+        return browser::execute(command, input, path);
+    }
     if command == "status" || command == "list-operations" {
         let db = open_db(path, false)?;
-        let ops = operations(db.as_ref())?;
+        let mut ops = operations(db.as_ref())?;
+        results::annotate(db.as_ref(), &mut ops)?;
         if command == "list-operations" {
             return Ok(json!({"operations":ops}));
         }
         return Ok(
-            json!({"plugin":{"id":ID,"version":VERSION},"workspace":effective_workspace(db.as_ref(),host,false)?,"template":{"version":METHOD_VERSION,"text":TEMPLATE},"operations":ops,"capabilities":{"taskDispatch":true,"platformRead":false,"browserBridge":false,"resultWriteback":false}}),
+            json!({"plugin":{"id":ID,"version":VERSION},"workspace":effective_workspace(db.as_ref(),host,false)?,"browserBinding":browser::binding(db.as_ref())?,"template":{"version":METHOD_VERSION,"text":TEMPLATE},"operations":ops,"capabilities":{"taskDispatch":true,"platformRead":false,"browserBridge":false,"browserReadBridge":true,"reportCollection":true,"resultValidation":true,"platformContract":true,"sourceObservations":true,"workbenchCandidateClient":true,"resultWriteback":false}}),
         );
     }
     if ![
@@ -396,9 +459,18 @@ fn execute(
                     return Err(w["error"].as_str().unwrap_or("专属目录无效").into());
                 }
                 let id = format!("op_{}", Uuid::new_v4().simple());
+                let browser = browser::binding(Some(&tx))?;
                 let message = format!(
-                    "{}{}\n【方法版本：{}】\n{}\n【工作台操作编号：{}】",
-                    prompt, BOUNDARY, METHOD_VERSION, TEMPLATE, id
+                    "{}{}\n【方法版本：{}】\n{}\n【工作台操作编号：{}】\n{}\n{}",
+                    prompt,
+                    BOUNDARY,
+                    METHOD_VERSION,
+                    TEMPLATE,
+                    id,
+                    RESULT_INSTRUCTIONS.replace("{{OPERATION_ID}}", &id),
+                    BROWSER_INSTRUCTIONS
+                        .replace("{{OPERATION_ID}}", &id)
+                        .replace("{{BROWSER_BINDING}}", &browser.to_string())
                 );
                 if message.encode_utf16().count() > 32000 {
                     return Err(
@@ -410,7 +482,7 @@ fn execute(
                 create["title"] = json!(title);
                 create["clientMsgId"] = json!(format!("{id}_create"));
                 let created = now();
-                let op = json!({"id":id,"requestId":request_id,"status":"prepared","task":null,"receipt":null,"error":null,"workspace":w,"prompt":prompt,"runtime":rt,"methodVersion":METHOD_VERSION,"createdAt":created,"dispatch":{"create":create,"message":{"clientMsgId":format!("{id}_message"),"text":message,"intent":"work","lang":"zh"}}});
+                let op = json!({"id":id,"requestId":request_id,"status":"prepared","task":null,"receipt":null,"error":null,"workspace":w,"browser":browser,"prompt":prompt,"runtime":rt,"methodVersion":METHOD_VERSION,"createdAt":created,"dispatch":{"create":create,"message":{"clientMsgId":format!("{id}_message"),"text":message,"intent":"work","lang":"zh"}}});
                 tx.execute("INSERT INTO operations(id,request_id,request,value,created_at) VALUES(?,?,?,?,?)",params![id,request_id,request.to_string(),op.to_string(),created]).map_err(|e|e.to_string())?;
                 json!({"operation":op})
             }
@@ -515,10 +587,10 @@ fn main() {
         let command = env::args().nth(1).ok_or("缺少插件命令")?;
         let mut input = String::new();
         std::io::stdin()
-            .take(262145)
+            .take(1048577)
             .read_to_string(&mut input)
             .map_err(|e| format!("无法读取输入：{e}"))?;
-        if input.len() > 262144 {
+        if input.len() > 1048576 {
             return Err("命令输入超过限制".into());
         }
         let input = if input.trim().is_empty() {
@@ -528,6 +600,9 @@ fn main() {
         };
         if !input.is_object() {
             return Err("命令输入必须是 JSON 对象".into());
+        }
+        if command == "workbench-provider" {
+            return workbench_store::execute(input);
         }
         let workspace = env::var("MULTICC_PLUGIN_WORKSPACE").ok();
         let dir_id = env::var("MULTICC_PLUGIN_DIR_ID").ok();

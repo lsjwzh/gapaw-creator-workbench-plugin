@@ -2,14 +2,44 @@
   "schema": 1,
   "id": "gapaw-creator-workbench",
   "name": "Gapaw 达人工作台",
-  "version": "0.1.0",
-  "description": "套用回本率选人方法，向专属目录派发 MultiCC 任务并保存关联与回执。",
+  "version": "0.6.0",
+  "description": "从原任务导入平台响应、核对报告，并经明确操作保存到工作台待核验候选区。",
   "engine": {
     "type": "command",
     "binary": "bin/gapaw-creator-workbench",
     "binaryPlatformDir": "bin"
   },
-  "commands": ["status", "configure", "prepare-operation", "record-dispatch", "record-error", "list-operations"],
+  "commands": [
+    "status",
+    "configure",
+    "prepare-operation",
+    "record-dispatch",
+    "record-error",
+    "list-operations",
+    "result-contract",
+    "get-result",
+    "submit-result",
+    "browser-status",
+    "bind-browser",
+    "browser-probe",
+    "browser-pages",
+    "browser-read-page",
+    "platform-contract",
+    "validate-result",
+    "observation-contract",
+    "preview-observation",
+    "submit-observation",
+    "get-observations",
+    "workbench-status",
+    "prepare-adoption",
+    "adopt-result",
+    "get-adoption",
+    "reconcile-adoption",
+    "workbench-list",
+    "workbench-batch"
+  ],
   "ui": "ui/index.html",
-  "setup": { "workspace": true }
+  "setup": {
+    "workspace": true
+  }
 }

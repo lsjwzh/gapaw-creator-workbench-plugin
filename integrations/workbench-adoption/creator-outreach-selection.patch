@@ -1,0 +1,29 @@
+--- a/server.py
++++ b/server.py
+@@ -4,6 +4,7 @@
+ from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
+ from urllib.parse import urlparse,unquote
+ from store import Store
++from workbench_bridge import provider_request
+ 
+ def make_handler(store,webroot):
+  class Handler(BaseHTTPRequestHandler):
+@@ -38,6 +39,9 @@
+         except Exception:
+             traceback.print_exc();return self.respond({'error':'处理失败，请查看本机服务日志'},500)
+     def do_POST(self):
++        if urlparse(self.path).path=='/api/plugin-selection':
++            result,status=provider_request(store.path,self.headers,self.rfile,self.connection)
++            return self.respond(result,status)
+         if self.headers.get('X-Outreach-Request')!='1':return self.respond({'error':'请求来源校验失败'},403)
+         try:
+             length=int(self.headers.get('Content-Length','0'))
+--- a/index.html
++++ b/index.html
+@@ -1,5 +1,5 @@
+ <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Gapaw｜达人触达工作台</title><link rel="stylesheet" href="style.css"></head><body>
+-<header><div><small>GAPAW · 达人合作</small><h1>达人触达工作台</h1><p>一人一档 · 真实依据 · 手工跟进</p></div><nav><a href="conversations.html">谈判总览</a><a href="guide.html" target="_blank" rel="noopener">使用说明</a><a href="api/export.xlsx">下载工作簿</a><a href="api/export.zip">下载完整草稿包</a><button id="reload">刷新记录</button></nav></header>
++<header><div><small>GAPAW · 达人合作</small><h1>达人触达工作台</h1><p>一人一档 · 真实依据 · 手工跟进</p></div><nav><a href="/plugins/gapaw-creator-workbench/ui/candidates.html">待核验候选区</a><a href="conversations.html">谈判总览</a><a href="guide.html" target="_blank" rel="noopener">使用说明</a><a href="api/export.xlsx">下载工作簿</a><a href="api/export.zip">下载完整草稿包</a><button id="reload">刷新记录</button></nav></header>
+ <section class="notice">当前为中文审稿与手工记录系统，不会发送消息。资料采集于2026年9月28日，主要统计期为8月28日—9月26日。复制草稿不代表发送，旧邀约不计入本轮结果。</section>
+ <section id="stats" class="stats"></section>
+ <main><section class="toolbar"><input id="search" placeholder="搜索账号、商品依据或选题" aria-label="搜索达人"><select id="priority" aria-label="优先级"><option value="">全部优先级</option><option>A 优先</option><option>B 次优先</option><option>C 泛品试投</option></select><select id="stage" aria-label="触达状态"><option value="">全部状态</option><option>待核验</option><option>发送尝试</option><option>发送失败</option><option>平台受理</option><option>明确已读</option><option>有效回复</option><option>有意向</option><option>确认合作</option><option>明确拒绝</option><option>寄样</option><option>已发片</option></select><select id="history" aria-label="历史邀约"><option value="">全部历史</option><option value="old">旧站内邀约未回复</option><option value="other">其他候选</option></select><label><input id="due" type="checkbox">到期跟进</label><span id="count"></span></section>
