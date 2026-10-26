@@ -8,6 +8,7 @@ use std::time::Duration;
 use uuid::Uuid;
 mod bridge;
 mod browser;
+mod drafts;
 mod observations;
 mod platform;
 mod results;
@@ -98,6 +99,7 @@ fn open_db(path: &Path, write: bool) -> Result<Option<Connection>> {
         results::init(&db)?;
         observations::init(&db)?;
         workbench::init(&db)?;
+        drafts::init(&db)?;
     }
     Ok(Some(db))
 }
@@ -343,6 +345,20 @@ fn execute(
     {
         return results::execute(command, input, path);
     }
+    if [
+        "outreach-status",
+        "outreach-configure",
+        "outreach-creators",
+        "prepare-drafts",
+        "draft-context",
+        "submit-drafts",
+        "get-drafts",
+        "adopt-draft",
+    ]
+    .contains(&command)
+    {
+        return drafts::execute(command, input, path, host);
+    }
     if command == "platform-contract" {
         return platform::execute(input, path);
     }
@@ -388,7 +404,7 @@ fn execute(
             return Ok(json!({"operations":ops}));
         }
         return Ok(
-            json!({"plugin":{"id":ID,"version":VERSION},"workspace":effective_workspace(db.as_ref(),host,false)?,"browserBinding":browser::binding(db.as_ref())?,"template":{"version":METHOD_VERSION,"text":TEMPLATE},"operations":ops,"capabilities":{"taskDispatch":true,"platformRead":false,"browserBridge":false,"browserReadBridge":true,"reportCollection":true,"resultValidation":true,"platformContract":true,"sourceObservations":true,"workbenchCandidateClient":true,"resultWriteback":false}}),
+            json!({"plugin":{"id":ID,"version":VERSION},"workspace":effective_workspace(db.as_ref(),host,false)?,"browserBinding":browser::binding(db.as_ref())?,"template":{"version":METHOD_VERSION,"text":TEMPLATE},"operations":ops,"capabilities":{"taskDispatch":true,"platformRead":false,"browserBridge":false,"browserReadBridge":true,"reportCollection":true,"resultValidation":true,"platformContract":true,"sourceObservations":true,"workbenchCandidateClient":true,"resultWriteback":false,"draftWriteback":true}}),
         );
     }
     if ![

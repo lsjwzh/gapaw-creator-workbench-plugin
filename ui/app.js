@@ -2,7 +2,7 @@
   'use strict';
   const api = factory(typeof module === 'object' && module.exports ? require('./data-workflow.js') : root.GapawDataWorkflow);
   if (typeof module === 'object' && module.exports) module.exports = api;
-  else root.addEventListener('DOMContentLoaded', () => api.mount(root.document, root));
+  else { root.GapawWorkbenchApp = api; root.addEventListener('DOMContentLoaded', () => { if (root.document.getElementById('task-form')) api.mount(root.document, root); }); }
 }(typeof window === 'undefined' ? globalThis : window, function (Workflow) {
   'use strict';
   const PLUGIN_ID = 'gapaw-creator-workbench';
@@ -668,7 +668,7 @@
       try {
         const status = await client.run('status');
         if (!status?.plugin || !Array.isArray(status.operations)) throw new Error('插件返回的状态格式不兼容。');
-        state.status = status; state.operations = status.operations;
+        state.status = status; state.operations = status.operations.filter(item => item.kind !== 'drafts');
         const workspace = status.workspace;
         $('workspace-path').textContent = workspace?.path || '尚未配置专属目录';
         $('workspace-description').textContent = hostManaged(workspace) ? '此目录由 MultiCC 宿主管理。' : workspaceReady() ? '新任务将归属此目录；历史任务继续使用原目录。' : '先选择已登记的持久目录，再发起任务。';

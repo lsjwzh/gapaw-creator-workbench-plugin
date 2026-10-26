@@ -73,7 +73,7 @@ fn missing_fields(v: &Value) -> Result<()> {
 fn hash(v: &Value) -> String {
     format!("{:x}", Sha256::digest(v.to_string().as_bytes()))
 }
-fn endpoint(raw: &str) -> Result<String> {
+pub(crate) fn endpoint(raw: &str) -> Result<String> {
     let root = raw.strip_suffix('/').unwrap_or(raw);
     let port = root
         .strip_prefix("http://127.0.0.1:")

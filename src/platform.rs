@@ -6,6 +6,9 @@ use std::path::Path;
 
 pub fn bound_operation(db: &Connection, id: &str, task_id: &str) -> Result<Value> {
     let op = operation(db, id)?;
+    if op["kind"] == "drafts" {
+        return Err("邀约草稿任务不接受选人报告或平台观测".into());
+    }
     if op["task"]["taskId"].as_str() != Some(task_id)
         || !["task_created", "accepted", "delivery_failed"]
             .contains(&op["status"].as_str().unwrap_or(""))
