@@ -8,6 +8,7 @@ use std::time::Duration;
 use uuid::Uuid;
 mod bridge;
 mod browser;
+mod console;
 mod drafts;
 mod observations;
 mod platform;
@@ -354,10 +355,21 @@ fn execute(
         "submit-drafts",
         "get-drafts",
         "adopt-draft",
+        "adopt-negotiation",
     ]
     .contains(&command)
     {
         return drafts::execute(command, input, path, host);
+    }
+    if [
+        "workbench-home",
+        "workbench-creator",
+        "workbench-conversations",
+        "edit-draft",
+    ]
+    .contains(&command)
+    {
+        return console::execute(command, input, path);
     }
     if command == "platform-contract" {
         return platform::execute(input, path);

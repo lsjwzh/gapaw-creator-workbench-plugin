@@ -2,7 +2,7 @@
   'use strict';
   const api = factory(typeof module === 'object' && module.exports ? require('./app.js') : root.GapawWorkbenchApp);
   if (typeof module === 'object' && module.exports) module.exports = api;
-  else root.addEventListener('DOMContentLoaded', () => api.mount(root.document, root));
+  else { root.GapawDrafts = api; root.addEventListener('DOMContentLoaded', () => { if (root.document.getElementById('draft-composer')) api.mount(root.document, root); }); }
 }(typeof window === 'undefined' ? globalThis : window, function (App) {
   'use strict';
   const MAX_CREATORS = 10;

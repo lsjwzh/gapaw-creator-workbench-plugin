@@ -2,8 +2,8 @@
   "schema": 1,
   "id": "gapaw-creator-workbench",
   "name": "Gapaw 达人工作台",
-  "version": "0.7.0",
-  "description": "为选中达人生成邀约草稿并在比较后按版本写回现有工作台；保留选人报告、平台观测与待核验候选能力。",
+  "version": "0.8.0",
+  "description": "以现有达人工作台为主体：达人列表、档案、往来对话、谈判摘要与待办；生成邀约草稿、总结对话并拟回复交给 MultiCC，比较后按版本写回。不发送消息。",
   "engine": {
     "type": "command",
     "binary": "bin/gapaw-creator-workbench",
@@ -44,7 +44,12 @@
     "draft-context",
     "submit-drafts",
     "get-drafts",
-    "adopt-draft"
+    "adopt-draft",
+    "adopt-negotiation",
+    "workbench-home",
+    "workbench-creator",
+    "workbench-conversations",
+    "edit-draft"
   ],
   "ui": "ui/index.html",
   "setup": {
