@@ -1,0 +1,182 @@
+{
+  "contractVersion": "platform-fields-v1",
+  "sources": [
+    {
+      "id": "affiliate",
+      "label": "TikTok Affiliate",
+      "purpose": "规划职责：在指定店铺与市场发现候选，读取当前账号可见的达人资料和联盟资格；字段可用性尚未实测。",
+      "requirements": [
+        {
+          "id": "account_scope",
+          "label": "账号、店铺、市场与权限",
+          "scope": "connection",
+          "requiredForRoi": true,
+          "note": "每次执行须核对实际账号、店铺、市场和必要能力；连接成功或页面可读不代表核验通过。"
+        },
+        {
+          "id": "creator_identity",
+          "label": "稳定达人身份与主页",
+          "scope": "creator",
+          "requiredForRoi": true,
+          "note": "历史 creator_oecuid.value／base.oec_id 仅为映射线索；账号名、相似昵称和头像不能证明跨来源同一身份。"
+        },
+        {
+          "id": "creator_discovery",
+          "label": "候选筛选、详情与联盟资格",
+          "scope": "creator",
+          "requiredForRoi": false,
+          "note": "读取权限与筛选字段需实测；不包含邀请、私信或联系信息解锁。"
+        },
+        {
+          "id": "metric_scope",
+          "label": "成交范围、区间、时区、币种与单位",
+          "scope": "batch",
+          "requiredForRoi": true,
+          "note": "video_gmv 与 live_gmv 范围不同；店铺累计合作成交不能替代同期间达人全类目或逐视频成交。缺少区间与单位时保留未知。"
+        },
+        {
+          "id": "video_sales",
+          "label": "逐视频身份、发布时间与成交拆分",
+          "scope": "video",
+          "requiredForRoi": true,
+          "note": "需要稳定视频编号以及同统计区间的新视频；自然、广告和总成交不能重复计算。尚未确认本账号可提供完整逐视频字段。"
+        },
+        {
+          "id": "read_coverage",
+          "label": "分页、数量上限、结束状态与采样限制",
+          "scope": "batch",
+          "requiredForRoi": true,
+          "note": "空响应须先核对登录、权限、结构和查询执行；未完成分页或限额停止不能声称全量或真实零结果。"
+        }
+      ],
+      "limitations": [
+        "本契约描述读取责任，不是实测能力或通用官方 API 承诺。",
+        "可能受店铺、市场、账号权限与区间限制；缺字段不能用零代替。",
+        "平台履约信号、直播成交或累计合作成交不能替换逐视频回本计算。"
+      ]
+    },
+    {
+      "id": "kalodata",
+      "label": "Kalodata",
+      "purpose": "规划职责：补充类目发现、第三方带货指标、商品与内容依据；保留估算属性和来源范围。",
+      "requirements": [
+        {
+          "id": "account_scope",
+          "label": "账号、市场、会员与区间权限",
+          "scope": "connection",
+          "requiredForRoi": true,
+          "note": "读取前须核对账号、会员、额度及目标区间；页面可见不代表本次指标有权限。"
+        },
+        {
+          "id": "creator_identity",
+          "label": "来源达人编号与跨源关联依据",
+          "scope": "creator",
+          "requiredForRoi": true,
+          "note": "历史 id、主页和观测账号名须保留来源命名空间；与 Affiliate 的同名或相同数字编号不能自动合并。"
+        },
+        {
+          "id": "metric_scope",
+          "label": "第三方指标的区间、单位与估算标记",
+          "scope": "batch",
+          "requiredForRoi": true,
+          "note": "revenue／total_revenue 等历史字段需样本核验范围、时区和币种；估算成交不能宣称实测成交。"
+        },
+        {
+          "id": "content_evidence",
+          "label": "商品、视频与内容依据",
+          "scope": "video",
+          "requiredForRoi": true,
+          "note": "逐视频引用需要稳定编号和发布时间；product_count 是商品数，related_creator_count 是关联达人数，均不能当视频数。"
+        },
+        {
+          "id": "read_coverage",
+          "label": "榜单样本、截断列表与分页覆盖",
+          "scope": "batch",
+          "requiredForRoi": true,
+          "note": "历史 video_ids、product_ids 有截断，数组长度不能当总量；类目榜单前十只能标为榜单样本。"
+        },
+        {
+          "id": "context_metrics",
+          "label": "粉丝、类目和商品表现补充",
+          "scope": "creator",
+          "requiredForRoi": false,
+          "note": "followers、product_count 等只是历史映射线索；不能替代同区间逐视频成交、费用和分母。"
+        }
+      ],
+      "limitations": [
+        "第三方指标需保留估算与口径；不能当作已核验的店铺实际成交。",
+        "会员、额度、市场和区间权限尚未通过本契约检测。",
+        "截断数组、榜单样本和搜索上限都不能证明同期新视频全量。"
+      ]
+    },
+    {
+      "id": "confirmed_inputs",
+      "label": "已确认的业务与成本资料",
+      "purpose": "规划职责：提供可追溯的成本、合作与广告资料，继续评估已有候选；人工导入不能冒充平台实时读取。",
+      "requirements": [
+        {
+          "id": "contribution_rate",
+          "label": "佣金前贡献率",
+          "scope": "cost",
+          "requiredForRoi": true,
+          "note": "取任务所用口径的已确认贡献率；不把历史模型参数或推测成本冒充实际费用。"
+        },
+        {
+          "id": "commission_rate",
+          "label": "自然与广告渠道佣金率",
+          "scope": "cost",
+          "requiredForRoi": true,
+          "note": "按对应成交渠道填写；拆分佣金时分别计算，total 不能同时与 organic／ads 重复计入。"
+        },
+        {
+          "id": "ad_spend",
+          "label": "逐视频广告消耗",
+          "scope": "video",
+          "requiredForRoi": true,
+          "note": "需要明确广告来源和视频归属；未知必须为 null，零消耗也需要确认依据。"
+        },
+        {
+          "id": "fixed_fee",
+          "label": "每条固定合作费",
+          "scope": "video",
+          "requiredForRoi": true,
+          "note": "保留合作口径与分摊依据，不覆盖人工已确认报价。"
+        },
+        {
+          "id": "sample_cost",
+          "label": "逐视频寄样分摊",
+          "scope": "video",
+          "requiredForRoi": true,
+          "note": "保留寄样成本和分摊依据；没有确认值不能按零处理。"
+        },
+        {
+          "id": "period_currency",
+          "label": "统计区间、时区、币种和统一单位",
+          "scope": "batch",
+          "requiredForRoi": true,
+          "note": "同期间新视频分母与费用、成交范围须一致；不自动汇兑或跨市场混算。"
+        },
+        {
+          "id": "confirmation_provenance",
+          "label": "确认人、资料时间、来源与覆盖说明",
+          "scope": "batch",
+          "requiredForRoi": true,
+          "note": "现有结果 schema 1 仅含候选来源链接、备注和报告覆盖文本，没有字段级来源、确认人或估算标记，预检无法验证真实费用和全量。"
+        }
+      ],
+      "limitations": [
+        "填入数值只代表算式可计算，不代表费用已确认。",
+        "现有结果 schema 1 无字段级溯源，不能自动证明跨来源一致、估算属性、真实账号或全量覆盖。",
+        "正式达人库采纳尚未接入；报告保存后仍为待采纳。"
+      ]
+    }
+  ],
+  "canCollectPlatforms": false,
+  "notes": [
+    "单视频结余＝各成交渠道 GMV×（佣金前贡献率－对应佣金率）之和－广告消耗－每条固定费－寄样分摊。",
+    "扣广回本率＝结余严格大于零的新视频数÷同期新视频总数；保留零成交和负结余，使用未舍入结余判断。",
+    "字段契约是任务读取与人工核验的清单，不会发起平台请求，也不表示采集器已实现。",
+    "预检只校验本次报告结构和数学计算；来源、费用真实性、全量覆盖与跨来源一致性仍需原任务核验。",
+    "按任务必需数据选择来源，不要求两个平台同时可用；替代来源须覆盖全部硬条件，只有用户明确要求双源核验时才要求双源。离线已有资料评估不要求平台连通。每项 requiredForRoi 表示该读取职责涉及回本必需信息，不表示所有来源必须同时具备该字段。"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "Cargo.lock": "ba1818fb49490ae9a88bd6785a2a839aeb0b6071235143bc648d075bd9241120",
+  "Cargo.toml": "d044b26281f005b8feec4ce6360b66ac0d20b23a6c2ead25f95a9805181e066b",
+  "extension/fingerprint.js": "ab1cfdb792ae6f3433000a7fcd8a2314f20b4a7250f417fe76d302224cf8e9d1",
+  "plugin.json": "dd07f8288c834ed2962a26159fb234ee93730a1fa3b18fb7bf65c502ae95b792",
+  "src/browser_session.rs": "9fa9daed852e8e7862a37d48a4423b2de41bba94c1b705b5ad28125b86775a5d",
+  "src/chrome.rs": "9983b902f13c329ee853090c9ce8a30b6c7dd1b16d158797e88136ae9b6ddc89",
+  "src/core.rs": "e0a8bd1e4d5cf328f1f11e1edf3c4101cd467ffc20278ec05615d8893cc244ae",
+  "src/fingerprint.rs": "68ee9e3c218a43049706d4e5add150b06b07eed2f9c1b77709626c6b58ecf537",
+  "src/main.rs": "5f7eafb93c5d80f7fee73470d50a06017b00373b464d08cccdf447fe0c9432fe",
+  "src/proxy.rs": "3e994f22aa7076fab11887de71a928db4ea47d0fe7fabd1ce7746037ab247412",
+  "src/relay.rs": "4b9607daed7715461306411779db420aa7cff02e3fa1041645d67f40f7adc860",
+  "src/store.rs": "da04c5feba3c5208b4cbb96755f3edd9805615b28f7ebb165c5d81c1727217c4",
+  "src/subs.rs": "5267ccaab33e6b41b4df93d614668449834318d0fd2c6bdb08ded50b2c93e78c",
+  "tests/automatic.cjs": "410f4f81afa9ae1a80554186c7acb49eff8bae30d2714e9f71b5b529438e6ccc",
+  "tests/fingerprint.cjs": "6804223b68e6a8830efbf0cba0290ab0dcf4c376cbd6e5c669e66292f382f879",
+  "tests/isolation.cjs": "74ebcbf39a26533546df5b25472f5118c91b77247c485f92f8922582e567bd79"
+}

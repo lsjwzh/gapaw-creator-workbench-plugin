@@ -1,0 +1,324 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -6,6 +6,9 @@
+ license = "MIT"
+ 
+ # 独立 crate：刻意不进 native/ 的 workspace，插件目录整体复制即可安装。
++[features]
++gapaw-read-bridge-test = []
++
+ [dependencies]
+ serde = { version = "1", features = ["derive"] }
+ serde_json = "1"
+@@ -18,6 +21,8 @@
+ flate2 = "1"
+ getrandom = "0.2"
+ libc = "0.2"
++url = "2"
++sha2 = "0.10"
+ 
+ [profile.release]
+ strip = true
+--- a/plugin.json
++++ b/plugin.json
+@@ -13,5 +13,6 @@
+     "binaryPlatformDir": "bin"
+   },
+   "commands": ["detect", "list", "save", "remove", "launch", "fingerprint-prepare", "stop", "probe", "egress", "egress-stop", "subscription-save", "subscription-refresh", "subscription-remove", "relay"],
++  "readOnlyBridge": { "protocol": "gapaw-browser-read-v1" },
+   "ui": "ui/index.html"
+ }
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -12,6 +12,7 @@
+ 
+ mod chrome;
+ mod browser_session;
++mod read_bridge;
+ mod core;
+ mod fingerprint;
+ mod proxy;
+@@ -328,7 +329,11 @@
+     // 先让 Chrome 正常退出（期间它可能还要经代理收尾），再收中继/内核。
+     let quit = if browser_session::request_stop(&id, pid) && chrome::wait_exit(pid, Duration::from_secs(8)) {
+         Ok(())
+-    } else { chrome::quit_gracefully(pid) };
++    } else {
++        #[cfg(feature = "gapaw-read-bridge-test")]
++        let _ = std::fs::write(store::data_dir().join("run/test-system-stop-fallback"), b"fallback");
++        chrome::quit_gracefully(pid)
++    };
+     store::clear_pid(&id);
+     chrome::stop_relay_if_any(&id);
+     core::stop_if_any(&id);
+--- a/src/chrome.rs
++++ b/src/chrome.rs
+@@ -240,6 +240,8 @@
+     let deadline = std::time::Instant::now() + Duration::from_secs(18);
+     let _lock = crate::browser_session::launch_lock(&profile.id)?;
+     ensure_not_running(&profile.id)?;
++    // 在准备扩展或出口进程前冻结元数据；校验失败不遗留辅助进程。
++    let source_revision = crate::read_bridge::source_revision(profile)?;
+     if url.is_some_and(|u| u.trim_start().starts_with('-')) { return Err("网页地址不能是启动参数".into()); }
+     let browser = find_browser(profile.chrome_path.as_deref())?;
+     let extension = if automatic_fingerprint { Some(crate::fingerprint::prepare(profile)?) } else { None };
+@@ -329,7 +331,7 @@
+     let args = build_args(profile, url, &proxy_arg);
+     let session = (if let Some(extension) = extension {
+         match deadline.checked_duration_since(std::time::Instant::now()) {
+-            Some(budget) => crate::browser_session::launch(&profile.id, &browser, &args, &extension, budget),
++            Some(budget) => crate::browser_session::launch(&profile.id, &browser, &args, &extension, &source_revision, budget),
+             None => Err("出口准备耗时过长，请重新启动浏览器".into()),
+         }
+     } else {
+--- a/src/browser_session.rs
++++ b/src/browser_session.rs
+@@ -10,6 +10,7 @@
+     browser: &std::path::Path,
+     args: &[String],
+     extension: &Value,
++    source_revision: &Value,
+     budget: Duration,
+ ) -> Result<Value, String> {
+     #[cfg(not(unix))]
+@@ -34,7 +35,7 @@
+         let mut child = command
+             .spawn()
+             .map_err(|e| format!("启动浏览器监督进程失败：{e}"))?;
+-        let input = json!({"browser":browser,"args":args,"extensionPath":extension["extensionPath"],"id":id,"timeoutMs":budget.as_millis()});
++        let input = json!({"browser":browser,"args":args,"extensionPath":extension["extensionPath"],"id":id,"sourceRevision":source_revision,"timeoutMs":budget.as_millis()});
+         let sent = child
+             .stdin
+             .take()
+@@ -77,7 +78,7 @@
+ #[cfg(unix)]
+ mod unix {
+     use super::*;
+-    use std::io::{Error, Read};
++    use std::io::Error;
+     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+     use std::os::unix::{net::UnixStream, process::CommandExt};
+     use std::process::Child;
+@@ -108,42 +109,72 @@
+         read: BufReader<UnixStream>,
+         id: u64,
+         startup_deadline: Option<Instant>,
++        broken: bool,
++        write_broken: bool,
++        frame_complete: bool,
+     }
+     impl Pipe {
+         fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
++            self.call_with_session(method, params, None, Instant::now() + Duration::from_secs(12))
++        }
++        fn call_with_session(&mut self, method: &str, params: Value, session: Option<&str>, request_deadline: Instant) -> Result<Value, String> {
++            if self.broken { return Err("浏览器私有管道已失效，请重新启动该身份".into()); }
++            self.frame_complete = false;
++            let result = self.call_frame(method, params, session, request_deadline);
++            if result.is_err() && !self.frame_complete { self.broken = true; }
++            result
++        }
++        fn call_frame(&mut self, method: &str, params: Value, session: Option<&str>, request_deadline: Instant) -> Result<Value, String> {
+             self.id += 1;
+-            let request = json!({"id":self.id,"method":method,"params":params});
++            let mut request = json!({"id":self.id,"method":method,"params":params});
++            if let Some(session) = session { request["sessionId"] = json!(session); }
+             let request = request.to_string() + "\0";
+-            self.write
+-                .write_all(request.as_bytes())
+-                .map_err(|_| "浏览器私有管道已断开")?;
+-            let request_deadline = Instant::now() + Duration::from_secs(12);
++            let write_budget = request_deadline.checked_duration_since(Instant::now()).ok_or("浏览器只读请求超时")?;
++            if self.write.set_write_timeout(Some(write_budget.min(Duration::from_millis(100)))).is_err() {
++                self.write_broken = true;
++                return Err("浏览器私有管道不可写".into());
++            }
++            if self.write.write_all(request.as_bytes()).is_err() {
++                self.write_broken = true;
++                return Err("浏览器私有管道已断开".into());
++            }
++            #[cfg(feature = "gapaw-read-bridge-test")]
++            if method == "DOMSnapshot.captureSnapshot" {
++                let gate = crate::store::data_dir().join("run/test-snapshot-delay");
++                if std::fs::remove_file(&gate).is_ok() {
++                    std::fs::write(gate.with_extension("started"), b"request-written").map_err(|e| e.to_string())?;
++                    while Instant::now() < request_deadline && !STOP.load(Ordering::Relaxed) {
++                        std::thread::sleep(Duration::from_millis(20));
++                    }
++                }
++            }
+             let deadline = self
+                 .startup_deadline
+                 .map_or(request_deadline, |d| d.min(request_deadline));
+             loop {
+-                let remaining = deadline
+-                    .checked_duration_since(Instant::now())
+-                    .ok_or("等待浏览器响应超时")?;
+-                self.read
+-                    .get_ref()
+-                    .set_read_timeout(Some(remaining))
+-                    .map_err(|e| e.to_string())?;
+                 let mut bytes = Vec::new();
+-                let count = self
+-                    .read
+-                    .by_ref()
+-                    .take(8 * 1024 * 1024)
+-                    .read_until(0, &mut bytes)
+-                    .map_err(|_| format!("浏览器未能完成 {method}（超时或管道断开）"))?;
+-                if count == 0 || bytes.last() != Some(&0) {
+-                    return Err("浏览器响应无效或已退出".into());
++                loop {
++                    if STOP.load(Ordering::Relaxed) { return Err("浏览器正在停止，已取消读取".into()); }
++                    let remaining = deadline.checked_duration_since(Instant::now()).ok_or("等待浏览器响应超时")?;
++                    self.read.get_ref().set_read_timeout(Some(remaining.min(Duration::from_millis(100)))).map_err(|_| "浏览器私有管道不可读")?;
++                    let buffer = match self.read.fill_buf() {
++                        Ok(buffer) => buffer,
++                        Err(error) if matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut | std::io::ErrorKind::Interrupted) => continue,
++                        Err(_) => return Err("浏览器响应超时或管道已断开".into()),
++                    };
++                    if buffer.is_empty() { return Err("浏览器响应无效或已退出".into()); }
++                    let count = buffer.iter().position(|b| *b == 0).map_or(buffer.len(), |i| i + 1);
++                    if bytes.len() + count > 8 * 1024 * 1024 { return Err("浏览器响应超过读取上限".into()); }
++                    bytes.extend_from_slice(&buffer[..count]);
++                    self.read.consume(count);
++                    if bytes.last() == Some(&0) { break; }
+                 }
+                 bytes.pop();
+                 let v: Value = serde_json::from_slice(&bytes).map_err(|_| "浏览器响应格式无效")?;
+                 if v["id"].as_u64() != Some(self.id) {
+                     continue;
+                 }
++                self.frame_complete = true;
+                 if v.get("error").is_some() {
+                     // 不回显 CDP 完整响应，避免潜在路径/URL 泄露。
+                     return Err(format!(
+@@ -152,6 +183,17 @@
+                 }
+                 return Ok(v["result"].clone());
+             }
++        }
++        // 停止后不再解析读端；仅当此前所有写帧完整时发送一次固定关闭请求。
++        // 读端即使因取消或半帧而失效，Browser.close 仍可让 Chrome 正常保存会话。
++        fn request_close(&mut self) -> Result<(), String> {
++            self.broken = true;
++            if self.write_broken { return Err("浏览器写入管道已失效".into()); }
++            self.write_broken = true;
++            self.id += 1;
++            self.write.set_write_timeout(Some(Duration::from_millis(500))).map_err(|e| e.to_string())?;
++            let request = json!({"id":self.id,"method":"Browser.close","params":{}}).to_string() + "\0";
++            self.write.write_all(request.as_bytes()).map_err(|_| "发送浏览器关闭请求失败".into())
+         }
+     }
+ 
+@@ -219,6 +261,9 @@
+             read: BufReader::new(read),
+             id: 0,
+             startup_deadline: Some(startup_deadline),
++            broken: false,
++            write_broken: false,
++            frame_complete: false,
+         };
+         let targets = pipe.call("Target.getTargets", json!({}))?;
+         if targets["targetInfos"]
+@@ -232,28 +277,18 @@
+             .as_str()
+             .filter(|id| !id.is_empty())
+             .ok_or("浏览器未确认扩展加载成功")?;
+-        let mut opener = Browser(
+-            Command::new(browser)
+-                .args(&args)
+-                .stdin(Stdio::null())
+-                .stdout(Stdio::null())
+-                .stderr(Stdio::null())
+-                .spawn()
+-                .map_err(|e| format!("打开身份窗口失败：{e}"))?,
+-        );
+-        let deadline = startup_deadline.min(Instant::now() + Duration::from_secs(6));
+-        loop {
+-            if let Some(status) = opener.0.try_wait().map_err(|e| e.to_string())? {
+-                if !status.success() {
+-                    return Err("打开身份窗口失败".into());
+-                }
+-                break;
+-            }
+-            if Instant::now() > deadline {
+-                return Err("等待身份窗口打开超时".into());
+-            }
+-            std::thread::sleep(Duration::from_millis(50));
+-        }
++        // 无头 Chrome 的第二个同 profile 进程会因 SingletonLock 拒绝启动。
++        // 已确认扩展加载后，在原浏览器管道中打开目标，避免重新启动进程和参数复用歧义。
++        let initial_url = args.iter().rev().find(|arg| !arg.starts_with("--"))
++            .map(String::as_str).unwrap_or("chrome://newtab/");
++        let opened = pipe.call("Target.createTarget", json!({"url":initial_url,"newWindow":true}))?;
++        let target_id = opened["targetId"].as_str().filter(|id| !id.is_empty())
++            .ok_or("浏览器未确认新页面创建成功")?;
++        let target = pipe.call("Target.getTargetInfo", json!({"targetId":target_id}))?;
++        if target["targetInfo"]["targetId"] != target_id || target["targetInfo"]["type"] != "page" {
++            return Err("浏览器未确认身份页面，已停止本次启动".into());
++        }
++        let bridge = crate::read_bridge::unix::Bridge::bind(id, input["sourceRevision"].clone())?;
+         let state = crate::store::data_dir()
+             .join("run")
+             .join(format!("{id}.browser.json"));
+@@ -268,19 +303,29 @@
+         writeln!(std::io::stdout(), "{result}").map_err(|_| "启动请求已中断")?;
+         std::io::stdout().flush().map_err(|_| "启动请求已中断")?;
+         pipe.startup_deadline = None;
+-        // 没有订阅 CDP 事件，保持管道存活即可。停止时仍通过正常 Browser.close 保存会话。
++        // 停止后不再接受排队 RPC，也不再读取/复用已取消的响应。
++        let mut stopping = false;
+         loop {
+             if child.0.try_wait().map_err(|e| e.to_string())?.is_some() {
+                 break;
+             }
+-            if STOP.swap(false, Ordering::Relaxed) {
+-                let _ = pipe.call("Browser.close", json!({}));
++            if STOP.load(Ordering::Relaxed) && !stopping {
++                stopping = true;
++                let _ = pipe.request_close();
++            }
++            if !stopping {
++                bridge.poll_with_cancel(
++                    |method, params, session, deadline| pipe.call_with_session(method, params, session, deadline),
++                    || STOP.load(Ordering::Relaxed),
++                );
+             }
+             std::thread::sleep(Duration::from_millis(100));
+         }
+         let _ = std::fs::remove_file(state);
+         Ok(())
+     }
++    #[cfg(test)]
++    include!("read_bridge_integration.rs");
+ }
+ 
+ pub fn supervise(input: &Value) {
+--- a/src/store.rs
++++ b/src/store.rs
+@@ -120,6 +120,25 @@
+ }
+ 
+ pub fn data_dir() -> PathBuf {
++    #[cfg(feature = "gapaw-read-bridge-test")]
++    {
++        // 仅显式测试构建可注入数据根，缺失或不属于夹具目录时立即停止，禁止回退生产数据。
++        let root = PathBuf::from(std::env::var_os("CHROME_READ_TEST_ROOT").expect("测试构建必须指定 CHROME_READ_TEST_ROOT"));
++        assert!(root.is_absolute() && root.parent() == Some(std::path::Path::new("/tmp")) && root.file_name().and_then(|v| v.to_str()).is_some_and(|v| v.starts_with("cbr-")), "测试数据根必须是 /tmp/cbr-* 专用目录");
++        let meta = fs::symlink_metadata(&root).expect("测试根目录不存在");
++        assert!(meta.is_dir() && !meta.file_type().is_symlink(), "测试根目录不能是符号链接");
++        #[cfg(unix)]
++        {
++            use std::os::unix::fs::{MetadataExt, PermissionsExt};
++            assert!(meta.uid() == unsafe { libc::geteuid() } && meta.permissions().mode() & 0o077 == 0, "测试根目录属主或权限无效");
++        }
++        let data = root.join("source-data");
++        if let Ok(meta) = fs::symlink_metadata(&data) {
++            assert!(meta.is_dir() && !meta.file_type().is_symlink(), "测试数据目录不能是符号链接");
++        }
++        return data;
++    }
++    #[cfg(not(feature = "gapaw-read-bridge-test"))]
+     home_dir().join(".multicc").join("plugins-data").join("chrome-proxy-launcher")
+ }
+ 

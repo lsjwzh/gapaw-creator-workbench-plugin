@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gapaw 达人工作台</title>
+  <link rel="stylesheet" href="./style.css">
+  <script src="./data-workflow.js" defer></script>
+  <script src="./app.js" defer></script>
+  <script src="./drafts.js" defer></script>
+  <script src="./workbench.js" defer></script>
+</head>
+<body class="wb">
+  <div class="shell wide">
+    <header class="topbar">
+      <a class="brand" href="./index.html"><span class="mark" aria-hidden="true">达</span>Gapaw 达人工作台</a>
+      <nav aria-label="工作台导航"><a href="#tab=creators">达人</a><a href="#tab=conversations">谈判总览</a><a href="./drafts.html">草稿任务</a><a href="./selection.html">按回本率选人</a><a href="/services/gapaw-creator-outreach/" target="_blank" rel="noopener noreferrer">原工作台 ↗</a></nav>
+    </header>
+    <main>
+      <div id="wb-notice" class="notice" role="status" aria-live="polite">正在连接现有达人工作台…</div>
+      <section id="wb-connect" class="card workspace-card" hidden aria-labelledby="wb-connect-title">
+        <div class="section-head"><div><h2 id="wb-connect-title">连接现有达人工作台</h2><p id="wb-connect-state"></p></div></div>
+        <label for="wb-url">本机地址</label>
+        <div class="inline"><input id="wb-url" placeholder="http://127.0.0.1:8793" maxlength="40"><button id="wb-url-save" class="primary" type="button">保存并连接</button></div>
+        <p class="hint">工作台服务需先在 MultiCC「服务与文档」中启动。插件经它的正式接口读写，不直接打开数据库。</p>
+      </section>
+
+      <section id="wb-stats" class="wb-stats" aria-label="总览"></section>
+
+      <section class="card wb-todo" aria-labelledby="wb-todo-title">
+        <div class="section-head"><h2 id="wb-todo-title">待办</h2><button id="wb-refresh" class="subtle" type="button">刷新</button></div>
+        <div class="wb-todo-grid">
+          <div><h3>待回复 <span id="todo-reply-count" class="tag warn"></span></h3><div id="todo-reply"></div></div>
+          <div><h3>到期跟进 <span id="todo-due-count" class="tag warn"></span></h3><div id="todo-due"></div></div>
+          <div><h3>待采用候选 <span id="todo-adopt-count" class="tag"></span></h3><div id="todo-adopt"></div></div>
+        </div>
+      </section>
+
+      <div class="wb-tabs" role="tablist">
+        <button id="tab-creators" role="tab" type="button" aria-selected="true">达人</button>
+        <button id="tab-conversations" role="tab" type="button" aria-selected="false">谈判总览</button>
+      </div>
+
+      <section id="panel-creators" class="wb-main" role="tabpanel" aria-labelledby="tab-creators">
+        <div class="card wb-list">
+          <div class="wb-filters">
+            <input id="wb-search" placeholder="搜索编号、账号、选题" aria-label="搜索达人">
+            <select id="wb-priority" aria-label="优先级"><option value="">全部优先级</option></select>
+            <select id="wb-stage" aria-label="合作阶段"><option value="">全部阶段</option></select>
+            <label class="wb-check"><input id="wb-has-messages" type="checkbox">只看有往来</label>
+          </div>
+          <div class="wb-batch"><span id="wb-selected" class="hint">未选择</span><button id="wb-batch-drafts" class="secondary" type="button" disabled>为选中达人生成草稿</button></div>
+          <div id="wb-creators" class="wb-creators"><p class="hint">连接后显示达人。</p></div>
+        </div>
+        <article id="wb-detail" class="card wb-detail" aria-live="polite"><p class="empty">从左侧选择一位达人，查看档案、往来对话、谈判摘要和文案。</p></article>
+      </section>
+
+      <section id="panel-conversations" class="history" role="tabpanel" aria-labelledby="tab-conversations" hidden>
+        <div class="section-head"><div><h2>谈判总览</h2><p class="hint">按最近往来排序。中文摘要在上，原文可展开；虚线为自动回复，不算真人答复。</p></div></div>
+        <div id="wb-conversations"><p class="empty">正在读取…</p></div>
+      </section>
+    </main>
+    <footer>业务记录以现有达人工作台为准 · 任务在 MultiCC 中执行 · 草稿与摘要经你采用后按版本写回 · 插件不发送任何消息</footer>
+  </div>
+
+  <dialog id="task-dialog" class="wb-dialog" aria-labelledby="task-title">
+    <form method="dialog" id="task-form-wb">
+      <h2 id="task-title">交给 MultiCC</h2>
+      <p id="task-target" class="hint"></p>
+      <fieldset id="task-channels" class="draft-channels"><legend>文案渠道</legend>
+        <label><input type="checkbox" name="wb-channel" value="email" checked>邮件</label>
+        <label><input type="checkbox" name="wb-channel" value="dm" checked>普通私信</label>
+        <label><input type="checkbox" name="wb-channel" value="comment">评论区</label>
+        <label><input type="checkbox" name="wb-channel" value="affiliate">达人联盟</label>
+        <label><input type="checkbox" name="wb-channel" value="followup">跟进</label>
+      </fieldset>
+      <div id="task-slot-wrap" hidden><label for="task-slot">回复草稿写入位置</label>
+        <select id="task-slot"><option value="followup">跟进（推荐，不覆盖首轮邀约文案）</option><option value="email">邮件</option><option value="dm">普通私信</option></select>
+      </div>
+      <label for="task-prompt">要求</label>
+      <textarea id="task-prompt" rows="6" maxlength="8000" class="draft-prompt"></textarea>
+      <div class="runtime-grid">
+        <div><label for="task-cli">执行工具</label><select id="task-cli"><option value="">请选择</option><option value="codex-exp">Codex</option><option value="claude">Claude Code</option></select></div>
+        <div><label for="task-model">模型 <span class="hint">可选</span></label><input id="task-model" maxlength="160" placeholder="留空使用已配置模型"></div>
+      </div>
+      <p class="hint">会真实创建 MultiCC 任务。结果交回后在本页对应达人处比较并采用；不发送任何消息。</p>
+      <div class="wb-dialog-actions"><button id="task-cancel" class="secondary" value="cancel" type="submit">取消</button><button id="task-send" class="primary" type="button" disabled>发送到 MultiCC</button></div>
+    </form>
+  </dialog>
+</body>
+</html>
