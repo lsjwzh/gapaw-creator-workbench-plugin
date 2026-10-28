@@ -6,7 +6,12 @@ use crate::{
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::HashSet, io::Read, path::Path, time::Duration};
+use std::{
+    collections::HashSet,
+    io::Read,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 use uuid::Uuid;
 
 pub const METHOD_VERSION: &str = "outreach-drafts-v1";
@@ -35,6 +40,8 @@ const PROFILE_KEYS: &[&str] = &[
     "kalodata_window",
     "data_collected",
     "warnings",
+    "selectionIdentity",
+    "selectionSnapshot",
 ];
 const SETTING_KEYS: &[&str] = &["fee", "commission", "sender", "notes"];
 /// 工作台按合作设置自动替换的占位符。
@@ -73,6 +80,7 @@ pub(crate) fn only_keys(input: &Value, allowed: &[&str], name: &str) -> Result<(
 pub(crate) struct Outreach {
     pub(crate) root: String,
     agent: ureq::Agent,
+    local: Option<PathBuf>,
 }
 impl Outreach {
     fn new(raw: &str) -> Result<Self> {
@@ -82,7 +90,28 @@ impl Outreach {
             .try_proxy_from_env(false)
             .timeout(Duration::from_secs(5))
             .build();
-        Ok(Self { root, agent })
+        Ok(Self {
+            root,
+            agent,
+            local: None,
+        })
+    }
+    fn from_local(path: PathBuf) -> Result<Self> {
+        let id = crate::local_store::identity(&path)?;
+        Ok(Self {
+            root: format!("local-workbench:{id}"),
+            agent: ureq::AgentBuilder::new().build(),
+            local: Some(path),
+        })
+    }
+    pub(crate) fn is_local(&self) -> bool {
+        self.local.is_some()
+    }
+    fn check_local(&self, path: &Path) -> Result<()> {
+        if self.root != format!("local-workbench:{}", crate::local_store::identity(path)?) {
+            return Err("本地工作台业务库身份已变化，请重新读取后操作".into());
+        }
+        Ok(())
     }
     pub(crate) fn configured(db: Option<&Connection>) -> Result<Option<Self>> {
         let Some(db) = db else { return Ok(None) };
@@ -96,12 +125,18 @@ impl Outreach {
             None => Ok(None),
             Some(raw) => {
                 let v: Value = serde_json::from_str(&raw).map_err(|_| "工作台地址配置损坏")?;
+                if v["mode"] == "local" {
+                    let state_path = Path::new(db.path().ok_or("本地工作台需要持久状态目录")?);
+                    return Ok(Some(Self::from_local(
+                        crate::local_backend::business_path(state_path)?,
+                    )?));
+                }
                 Ok(Some(Self::new(required(&v, "url")?)?))
             }
         }
     }
     pub(crate) fn required(db: Option<&Connection>) -> Result<Self> {
-        Self::configured(db)?.ok_or_else(|| "请先填写现有达人工作台的本机地址".into())
+        Self::configured(db)?.ok_or_else(|| "请先建立本地工作台或迁入已有数据".into())
     }
     fn read(response: ureq::Response) -> Result<Value> {
         let mut bytes = Vec::new();
@@ -115,7 +150,53 @@ impl Outreach {
         }
         serde_json::from_slice(&bytes).map_err(|_| "工作台未返回有效 JSON".into())
     }
+    /// 只读取原工作台固定导出端点；不接受任意路径，不保存文件。
+    pub(crate) fn download(&self, format: &str) -> Result<Vec<u8>> {
+        if let Some(path) = &self.local {
+            self.check_local(path)?;
+            return crate::local_export::download(path, format);
+        }
+        let (path, mime) = match format {
+            "xlsx" => (
+                "/api/export.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+            "zip" => ("/api/export.zip", "application/zip"),
+            _ => return Err("导出格式只能是 xlsx 或 zip".into()),
+        };
+        let response = self
+            .agent
+            .get(&format!("{}{path}", self.root))
+            .call()
+            .map_err(|_| "无法读取工作台导出，请检查服务与导出依赖")?;
+        if response.status() != 200
+            || response
+                .header("Content-Type")
+                .and_then(|v| v.split(';').next())
+                .map(str::trim)
+                != Some(mime)
+        {
+            return Err("工作台导出状态或文件类型不兼容".into());
+        }
+        let mut bytes = Vec::new();
+        response
+            .into_reader()
+            .take(MAX_RESPONSE + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| "工作台导出读取失败")?;
+        if bytes.len() as u64 > MAX_RESPONSE {
+            return Err("导出超过 8 MiB 限制".into());
+        }
+        if !bytes.starts_with(b"PK\x03\x04") {
+            return Err("工作台导出文件签名无效".into());
+        }
+        Ok(bytes)
+    }
     pub(crate) fn get(&self, path: &str) -> Result<Value> {
+        if let Some(local) = &self.local {
+            self.check_local(local)?;
+            return crate::local_store::get(local, path);
+        }
         match self.agent.get(&format!("{}{path}", self.root)).call() {
             Ok(r) => Self::read(r),
             Err(ureq::Error::Status(code, r)) => Err(Self::read(r)
@@ -145,6 +226,10 @@ impl Outreach {
         path: &str,
         payload: &Value,
     ) -> Result<std::result::Result<Value, String>> {
+        if let Some(local) = &self.local {
+            self.check_local(local)?;
+            return crate::local_store::post(local, path, payload);
+        }
         match self
             .agent
             .post(&format!("{}{path}", self.root))
@@ -290,6 +375,14 @@ fn scope_entry<'a>(op: &'a Value, creator: &str) -> Option<&'a Value> {
         .as_array()?
         .iter()
         .find(|c| c["creatorId"] == creator)
+}
+
+pub(crate) fn check_source(op: &Value, client: &Outreach) -> Result<()> {
+    match op["draftScope"]["sourceUrl"].as_str() {
+        Some(source) if source == client.root => Ok(()),
+        None if !client.is_local() => Ok(()),
+        _ => Err("候选所属工作台与当前业务库不一致，或旧任务没有业务库身份；历史记录仍保留，请在当前工作台重新生成候选后采用".into()),
+    }
 }
 
 pub(crate) fn proposals(db: &Connection, op_id: &str) -> Result<Vec<Value>> {
@@ -538,7 +631,7 @@ fn prepare(input: &Value, path: &Path, host: Option<(String, String)>) -> Result
     create["clientMsgId"] = json!(format!("{id}_create"));
     let created = now();
     let op = json!({"id":id,"kind":"drafts","mode":mode,"requestId":request_id,"status":"prepared","task":null,"receipt":null,"error":null,"workspace":w,"prompt":prompt,"runtime":rt,"methodVersion":METHOD_VERSION,"createdAt":created,
-        "draftScope":{"channels":channels,"capturedAt":created,"creators":scope},
+        "draftScope":{"channels":channels,"capturedAt":created,"creators":scope,"sourceUrl":client.root},
         "dispatch":{"create":create,"message":{"clientMsgId":format!("{id}_message"),"text":message,"intent":"work","lang":"zh"}}});
     tx.execute(
         "INSERT INTO operations(id,request_id,request,value,created_at) VALUES(?,?,?,?,?)",
@@ -808,7 +901,10 @@ fn get(input: &Value, path: &Path) -> Result<Value> {
     let mut negotiations = negotiation_proposals(&db, &op_id)?;
     let mut live_error = Value::Null;
     if input["live"] == true {
-        match Outreach::required(Some(&db)) {
+        match Outreach::required(Some(&db)).and_then(|client| {
+            check_source(&op, &client)?;
+            Ok(client)
+        }) {
             Ok(client) => {
                 let mut cache: Vec<(String, Value)> = vec![];
                 let creators: Vec<String> = items
@@ -889,6 +985,11 @@ fn adopt(input: &Value, path: &Path) -> Result<Value> {
         .map_err(|e| e.to_string())?
         .ok_or("草稿候选不存在")?;
     let p: Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let client = Outreach::required(Some(&db))?;
+    check_source(
+        &draft_operation(&db, required(&p, "operationId")?)?,
+        &client,
+    )?;
     let previous: Option<(String, i64, String)> = db
         .query_row(
             "SELECT proposal_id,expected_revision,status FROM gapaw_draft_adoptions WHERE adoption_id=?",
@@ -905,7 +1006,6 @@ fn adopt(input: &Value, path: &Path) -> Result<Value> {
             return Ok(json!({"adoptionId":adoption_id,"status":status}));
         }
     }
-    let client = Outreach::required(Some(&db))?;
     let creator = required(&p, "creatorId")?;
     let channel = required(&p, "channel")?;
     let subject = p["subject"].as_str().unwrap_or("");
@@ -1042,6 +1142,11 @@ fn adopt_negotiation(input: &Value, path: &Path) -> Result<Value> {
         .map_err(|e| e.to_string())?
         .ok_or("谈判摘要候选不存在")?;
     let p: Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let client = Outreach::required(Some(&db))?;
+    check_source(
+        &draft_operation(&db, required(&p, "operationId")?)?,
+        &client,
+    )?;
     let previous: Option<(String, Option<String>, String)> = db
         .query_row(
             "SELECT proposal_id,expected_updated,status FROM gapaw_negotiation_adoptions WHERE adoption_id=?",
@@ -1058,7 +1163,6 @@ fn adopt_negotiation(input: &Value, path: &Path) -> Result<Value> {
             return Ok(json!({"adoptionId":adoption_id,"status":status}));
         }
     }
-    let client = Outreach::required(Some(&db))?;
     let creator = required(&p, "creatorId")?;
     let fields = &p["fields"];
     let same = |n: &Value| {
@@ -1182,14 +1286,16 @@ pub fn execute(
             let db = open_db(path, false)?;
             match Outreach::configured(db.as_ref()) {
                 Ok(None) => Ok(
-                    json!({"configured":false,"available":false,"url":null,"message":"尚未填写现有达人工作台地址。"}),
+                    json!({"mode":"local","configured":false,"available":false,"url":null,"message":"新工作台尚未建立本地数据，可以迁入已有数据或创建空工作台。"}),
                 ),
                 Err(e) => Ok(json!({"configured":true,"available":false,"url":null,"message":e})),
                 Ok(Some(c)) => Ok(match c.health() {
                     Ok(()) => {
-                        json!({"configured":true,"available":true,"url":c.root,"message":"现有达人工作台可读取。"})
+                        json!({"mode":if c.is_local(){"local"}else{"legacy"},"configured":true,"available":true,"url":c.root,"message":if c.is_local(){"本地工作台已就绪，无需旧服务。"}else{"当前仍为旧工作台兼容连接，可迁入本地工作台。"}})
                     }
-                    Err(e) => json!({"configured":true,"available":false,"url":c.root,"message":e}),
+                    Err(e) => {
+                        json!({"mode":if c.is_local(){"local"}else{"legacy"},"configured":true,"available":false,"url":c.root,"message":e})
+                    }
                 }),
             }
         }

@@ -53,10 +53,16 @@ fn op_summary(op: &Value) -> Value {
         "creators":op["draftScope"]["creators"].as_array().map(|a|a.iter().map(|c|json!({"creatorId":c["creatorId"],"handle":c["profile"]["handle"]})).collect::<Vec<_>>())})
 }
 /// 每个“达人＋文案位置”只看最新版本；该位置没有任何版本被采用时算待处理。
-fn pending_by_creator(db: Option<&Connection>) -> Result<HashMap<String, usize>> {
+fn pending_by_creator(
+    db: Option<&Connection>,
+    client: &Outreach,
+) -> Result<HashMap<String, usize>> {
     let mut pending: HashMap<String, usize> = HashMap::new();
     let Some(db) = db else { return Ok(pending) };
     for op in drafts_operations(db)? {
+        if crate::drafts::check_source(&op, client).is_err() {
+            continue;
+        }
         let id = op["id"].as_str().unwrap_or("");
         let mut groups: HashMap<(String, String), bool> = HashMap::new();
         for p in proposals(db, id)? {
@@ -106,7 +112,7 @@ fn home(path: &Path) -> Result<Value> {
             }
         }
     }
-    let pending = pending_by_creator(db.as_ref())?;
+    let pending = pending_by_creator(db.as_ref(), &client)?;
     let today = chrono::Local::now().date_naive().to_string();
     let mut out = vec![];
     let (mut due, mut reply, mut adopt) = (vec![], vec![], vec![]);
@@ -168,7 +174,7 @@ fn creator(input: &Value, path: &Path) -> Result<Value> {
     let (mut ops, mut draft_props, mut nego_props) = (vec![], vec![], vec![]);
     if let Some(db) = db.as_ref() {
         for op in drafts_operations(db)? {
-            if !in_scope(&op, &id) {
+            if !in_scope(&op, &id) || crate::drafts::check_source(&op, &client).is_err() {
                 continue;
             }
             let op_id = op["id"].as_str().unwrap_or("");
@@ -191,7 +197,7 @@ fn creator(input: &Value, path: &Path) -> Result<Value> {
         }
     }
     Ok(
-        json!({"profile":d["profile"],"settings":d["settings"],"revision":d["revision"],"stage":d["stage"],"gates":d["gates"],
+        json!({"sourceUrl":client.root,"expectedSource":crate::facts::source_fingerprint(&client),"profile":d["profile"],"settings":d["settings"],"revision":d["revision"],"stage":d["stage"],"gates":d["gates"],
         "drafts":drafts,"events":d["events"],"messages":d["messages"],"negotiation":d["negotiation"],
         "operations":ops,"proposals":draft_props,"negotiationProposals":nego_props}),
     )
@@ -224,7 +230,14 @@ fn conversations(path: &Path) -> Result<Value> {
 fn edit(input: &Value, path: &Path) -> Result<Value> {
     only_keys(
         input,
-        &["creatorId", "channel", "subject", "body", "revision"],
+        &[
+            "creatorId",
+            "channel",
+            "subject",
+            "body",
+            "revision",
+            "expectedSource",
+        ],
         "edit-draft",
     )?;
     let id = identifier(input, "creatorId")?;
@@ -236,7 +249,7 @@ fn edit(input: &Value, path: &Path) -> Result<Value> {
     let body = required(input, "body")?;
     let expected = input["revision"]
         .as_i64()
-        .filter(|r| *r >= 0)
+        .filter(|r| *r >= 0 && *r < i64::MAX)
         .ok_or("revision 必须是非负整数")?;
     if subject.chars().count() > 300 || body.chars().count() > 10000 {
         return Err("文案超过长度限制".into());
@@ -247,6 +260,11 @@ fn edit(input: &Value, path: &Path) -> Result<Value> {
     check_placeholders(&format!("{subject}\n{body}"))?;
     let db = open_db(path, false)?;
     let client = Outreach::required(db.as_ref())?;
+    if let Some(source) = input.get("expectedSource") {
+        if source.as_str() != Some(crate::facts::source_fingerprint(&client).as_str()) {
+            return Err("工作台地址已变化，请回到原工作台核对文案后再保存".into());
+        }
+    }
     let posted = client.edit_draft(&id, channel, subject, body, expected);
     if let Ok(Err(msg)) = posted {
         let status = if msg.contains("已更新") {

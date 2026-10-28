@@ -90,6 +90,20 @@ class PackageTests(unittest.TestCase):
         self.assertEqual((target / "ui/index.html").read_text(), "新版工作台")
         self.assertEqual(list(self.plugins.glob(".*")), [])
 
+    def test_release_notes_language_version_and_archive(self):
+        notes = self.source / "CHANGELOG.md"
+        for content in ("# Changelog\n\n## 0.1.0\n\n- 中文说明\n",
+                        "# Changelog\n\n## 0.2.0\n\n- A later change.\n",
+                        "# Changelog\n\n## 0.1.0\n\n"):
+            notes.write_text(content)
+            with self.assertRaises(ValueError):
+                self.build()
+        notes.write_text("# Changelog\n\n## 0.1.0\n\n- Discover browser instances through the public host API.\n")
+        directory, archive = self.build()
+        self.assertEqual((directory / "CHANGELOG.md").read_bytes(), notes.read_bytes())
+        with zipfile.ZipFile(archive) as zipped:
+            self.assertEqual(zipped.read(PACKAGE.PLUGIN_ID + "/CHANGELOG.md"), notes.read_bytes())
+
     def test_refuse_unknown_destination_without_losing_files(self):
         self.build()
         target = self.plugins / PACKAGE.PLUGIN_ID

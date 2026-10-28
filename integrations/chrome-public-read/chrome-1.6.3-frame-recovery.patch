@@ -1,0 +1,83 @@
+--- a/src/browser_session.rs
++++ b/src/browser_session.rs
+@@ -114,6 +114,8 @@
+         broken: bool,
+         write_broken: bool,
+         frame_complete: bool,
++        pending_frame: Vec<u8>,
++        timed_out: bool,
+         events: Vec<Value>,
+     }
+     impl Pipe {
+@@ -125,8 +127,9 @@
+             let deadline = self.startup_deadline.map_or(request_deadline, |d| d.min(request_deadline));
+             if deadline <= Instant::now() { return Err("浏览器只读请求超时".into()); }
+             self.frame_complete = false;
++            self.timed_out = false;
+             let result = self.call_frame(method, params, session, deadline);
+-            if result.is_err() && !self.frame_complete { self.broken = true; }
++            if result.is_err() && !self.frame_complete && !self.timed_out { self.broken = true; }
+             result
+         }
+         fn call_frame(&mut self, method: &str, params: Value, session: Option<&str>, request_deadline: Instant) -> Result<Value, String> {
+@@ -161,13 +164,16 @@
+                 .startup_deadline
+                 .map_or(request_deadline, |d| d.min(request_deadline));
+             loop {
+-                let mut bytes = Vec::new();
++                let mut bytes = std::mem::take(&mut self.pending_frame);
+                 loop {
+                     if STOP.load(Ordering::Relaxed) { return Err("浏览器正在停止，已取消读取".into()); }
+                     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+-                        // 仍在完整帧边界时可继续使用管道；迟到响应按请求编号丢弃。
+-                        // 已读入半帧则必须作废，禁止错位解析或冒用旧响应。
++                        // 超时只终止本次等待，已读片段留在当前管道中。
++                        // 后续请求先续读至 NUL 边界，再按请求编号丢弃迟到响应。
++                        // 片段不向调用方返回；EOF、超限、坏 JSON 和写入失败仍作废。
+                         self.frame_complete = bytes.is_empty();
++                        self.pending_frame = bytes;
++                        self.timed_out = true;
+                         return Err("等待浏览器响应超时".into());
+                     };
+                     self.read.get_ref().set_read_timeout(Some(remaining.min(Duration::from_millis(100)))).map_err(|_| "浏览器私有管道不可读")?;
+@@ -295,6 +301,8 @@
+             broken: false,
+             write_broken: false,
+             frame_complete: false,
++            pending_frame: vec![],
++            timed_out: false,
+             events: vec![],
+         };
+         let targets = pipe.call("Target.getTargets", json!({}))?;
+--- a/plugin.json
++++ b/plugin.json
+@@ -3,7 +3,7 @@
+   "id": "chrome-proxy-launcher",
+   "name": "Chrome 隔离出口启动器",
+   "nameEn": "Chrome Isolated Proxy Launcher",
+-  "version": "1.6.3+page-read.2",
++  "version": "1.6.3+page-read.3",
+   "description": "为每个身份维护一份完全隔离的 Chrome profile，并强制绑定各自的出口：本机 VPN / http(s)・socks5 代理（支持账号密码），或 Clash 订阅节点（可经跳板链到上游住宅代理）。",
+   "descriptionEn": "One isolated Chrome profile per identity, each pinned to its own egress: local VPN / http(s)/socks5 proxies with auth, or Clash subscription nodes (optionally chained through a jump node to a residential upstream).",
+   "icon": "🌐",
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "chrome-proxy-launcher"
+-version = "1.6.3+page-read.2"
++version = "1.6.3+page-read.3"
+ edition = "2021"
+ description = "MultiCC plugin: launch isolated Chrome profiles, each pinned to its own proxy / VPN egress"
+ license = "MIT"
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -41,7 +41,7 @@
+ 
+ [[package]]
+ name = "chrome-proxy-launcher"
+-version = "1.6.3+page-read.2"
++version = "1.6.3+page-read.3"
+ dependencies = [
+  "flate2",
+  "getrandom",

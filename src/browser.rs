@@ -1,4 +1,4 @@
-//! Chrome 1.5 内部存储的只读适配。绝不执行来源插件或打开浏览器资料库。
+//! 默认通过宿主公开命令读取浏览器清单；显式旧版路径仅用于历史只读桥接兼容。
 use super::{identifier, now, open_db, operation, Result};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use serde_json::{json, Value};
@@ -15,6 +15,7 @@ const MAX_FILE: usize = 4 * 1024 * 1024;
 struct SourcePaths {
     plugin: Option<PathBuf>,
     data: Option<PathBuf>,
+    host_url: Option<String>,
 }
 impl SourcePaths {
     fn current() -> Self {
@@ -39,7 +40,21 @@ impl SourcePaths {
                         .join(SOURCE_ID)
                 })
             });
-        Self { plugin, data }
+        // 显式指定旧版来源路径才使用历史兼容层；宿主失败不退回读取私有文件。
+        let host_url = env::var("GAPAW_BROWSER_HOST_URL").ok().or_else(|| {
+            if env::var_os("GAPAW_CHROME_PLUGIN_DIR").is_some() {
+                None
+            } else {
+                Some(
+                    env::var("MULTICC_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:3000".into()),
+                )
+            }
+        });
+        Self {
+            plugin,
+            data,
+            host_url,
+        }
     }
 }
 fn read_bytes(path: &Path, limit: usize) -> Result<Vec<u8>> {
@@ -224,6 +239,12 @@ fn process_state(root: &Path, id: &str) -> &'static str {
     }
 }
 fn catalog(paths: &SourcePaths) -> (Value, Vec<Value>) {
+    if let Some(url) = &paths.host_url {
+        return crate::browser_catalog::catalog(url);
+    }
+    legacy_catalog(paths)
+}
+fn legacy_catalog(paths: &SourcePaths) -> (Value, Vec<Value>) {
     let mut source = json!({"installed":false,"version":null,"supported":false,"available":false,"message":"未找到 Chrome 出口隔离插件"});
     let outcome = (|| -> Result<Vec<Value>> {
         let root = paths
@@ -415,7 +436,7 @@ fn sanitize_binding(v: &Value) -> Result<Value> {
                 "confidence",
             ],
         )?;
-        if r["confidence"] != "metadata_only" {
+        if r["confidence"] != "metadata_only" && r["confidence"] != "public_metadata" {
             return Err("浏览器绑定版本记录损坏".into());
         }
         let subscription = if r["subscription"].is_null() {
@@ -424,7 +445,7 @@ fn sanitize_binding(v: &Value) -> Result<Value> {
             let s = &r["subscription"];
             json!({"id":safe_id(&s["id"])?,"updatedAt":number(s,"updatedAt")?,"sourceBytes":s["sourceBytes"].as_u64().ok_or("浏览器绑定版本记录损坏")?})
         };
-        json!({"id":id,"name":name,"sourceRevision":{"profileCreatedAt":number(r,"profileCreatedAt")?,"profileUpdatedAt":number(r,"profileUpdatedAt")?,"subscription":subscription,"confidence":"metadata_only"}})
+        json!({"id":id,"name":name,"sourceRevision":{"profileCreatedAt":number(r,"profileCreatedAt")?,"profileUpdatedAt":number(r,"profileUpdatedAt")?,"subscription":subscription,"confidence":r["confidence"]}})
     };
     Ok(json!({"revision":revision,"profile":profile,"configuredAt":configured}))
 }
@@ -484,7 +505,7 @@ fn status(paths: &SourcePaths, db: Option<&Connection>, input: &Value) -> Result
         {"id":"binding","label":"本次专用环境绑定","status":if state=="bound"{"passed"}else{"blocked"},"message":match state{"bound"=>"身份存在且版本元数据与绑定一致；不证明代理或账号状态","unbound"=>"尚未绑定专用身份","legacy_unbound"=>"旧任务没有冻结浏览器身份，不能套用当前默认绑定","missing"=>"绑定身份已从来源清单删除","changed"=>"来源配置元数据已变化，需要重新确认",_=>"来源暂不可核查，保留原绑定"}},
         {"id":"process","label":"进程存活线索","status":if process=="pid_alive"{"info"}else{"unknown"},"message":match process{"pid_alive"=>"记录的 PID 存活，未核对 Chrome 身份、登录或出口","not_running"=>"没有运行记录或记录的进程已退出；不代表已检查浏览器身份",_=>"无法确认记录的进程状态"}},
         {"id":"egress","label":"网络出口","status":"not_checked","message":"本插件不运行网络探针，未核查出口；不承诺全流量断网保护"},
-        {"id":"bridge","label":"浏览器只读桥接","status":if source["available"] != true {"blocked"} else if source["readOnlyBridge"] == true {"probe_available"} else {"requires_upgrade"},"message":if source["readOnlyBridge"] == true {"来源声明只读桥接，可手动探测；本次仅检查文件，未连接浏览器"} else {"来源未声明只读桥接协议，需要配套升级；不会打开浏览器或回退控制通道"}},
+        {"id":"bridge","label":"浏览器只读页面连接","status":if source["available"] != true {"blocked"} else if source["readOnlyBridge"] == true {"probe_available"} else if source["catalogTransport"] == "host-command" {"not_integrated"} else {"requires_upgrade"},"message":if source["catalogTransport"] == "host-command" {"实例查询与绑定已接通；公开只读页面协议尚未适配，不能据此判断平台已登录。无需降级浏览器插件。"} else if source["readOnlyBridge"] == true {"来源声明只读桥接，可手动探测；本次仅检查文件，未连接浏览器"} else {"来源未声明只读桥接协议，需要配套升级；不会打开浏览器或回退控制通道"}},
         {"id":"affiliate","label":"TikTok Affiliate 数据读取","status":"not_checked","message":"尚无读取适配器，未核验登录、权限和本次所需字段"},
         {"id":"kalodata","label":"Kalodata 数据读取","status":"not_checked","message":"尚无读取适配器，未核验登录、权限和本次所需字段"}
     ]);
@@ -629,6 +650,9 @@ fn bridge_execute(
 }
 fn execute_with(command: &str, input: Value, path: &Path, source: &SourcePaths) -> Result<Value> {
     if ["browser-probe", "browser-pages", "browser-read-page"].contains(&command) {
+        if source.host_url.is_some() {
+            return Err("当前公开接口支持实例清单与绑定，尚未提供已适配的只读页面协议；平台登录与字段读取仍需接入。不会改用内部控制管道或普通浏览器。".into());
+        }
         return bridge_execute(command, &input, path, source);
     }
     if command == "browser-status" {
@@ -720,6 +744,7 @@ mod tests {
                 paths: SourcePaths {
                     plugin: Some(plugin),
                     data: Some(data),
+                    host_url: None,
                 },
             };
             f.profiles(json!([profile("one"), profile("two")]));

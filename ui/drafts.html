@@ -13,21 +13,20 @@
   <div class="shell">
     <header class="topbar">
       <a class="brand" href="./index.html"><span class="mark" aria-hidden="true">达</span>达人工作台</a>
-      <nav aria-label="工作台导航"><a href="./index.html">工作台</a><a href="./selection.html">选人任务</a><a href="#draft-composer">生成草稿</a><a href="#draft-history">草稿任务</a><a href="/services/gapaw-creator-outreach/" target="_blank" rel="noopener noreferrer">现有达人工作台 ↗</a></nav>
+      <nav aria-label="工作台导航"><a href="./index.html">工作台</a><a href="./selection.html">选人任务</a><a href="#draft-composer">生成草稿</a><a href="#draft-history">草稿任务</a><a href="./index.html#data">本地数据管理</a></nav>
     </header>
     <main>
-      <section class="intro"><div class="eyebrow">第一里程碑</div><h1>为选中的达人生成邀约草稿</h1><p>交给 MultiCC 撰写，草稿回到这里比较；点击“采用”才会写入现有工作台的对应文案。不发送任何消息。</p></section>
-      <div id="draft-notice" class="notice" role="status" aria-live="polite">正在读取工作台连接…</div>
+      <section class="intro"><div class="eyebrow">第一里程碑</div><h1>为选中的达人生成邀约草稿</h1><p>交给 MultiCC 撰写，草稿回到这里比较；点击“采用”才会写入本地工作台的对应文案。不发送任何消息。</p></section>
+      <div id="draft-notice" class="notice" role="status" aria-live="polite">正在读取本地工作台数据…</div>
       <section class="card workspace-card" aria-labelledby="outreach-title">
-        <div class="section-head"><div><h2 id="outreach-title">现有达人工作台</h2><p id="outreach-state">正在检测…</p></div><button id="outreach-refresh" class="secondary" type="button">刷新</button></div>
-        <label for="outreach-url">本机地址</label>
-        <div class="inline"><input id="outreach-url" placeholder="http://127.0.0.1:8793" maxlength="40"><button id="outreach-save" class="primary" type="button">保存并检测</button></div>
-        <p class="hint">只接受本机地址；插件只读取档案与文案，采用时调用原有的文案保存接口。</p>
+        <div class="section-head"><div><h2 id="outreach-title">本地达人工作台</h2><p id="outreach-state">正在检测…</p></div><button id="outreach-refresh" class="secondary" type="button">刷新</button></div>
+        <p class="hint">草稿使用新工作台中的达人与合作条件。需要迁入已有记录或建立空白工作台时，进入<a href="./index.html#data">本地数据管理</a>。</p>
+        <details id="outreach-legacy" hidden><summary>旧版远端兼容配置</summary><label for="outreach-url">旧版工作台本机地址</label><div class="inline"><input id="outreach-url" maxlength="80"><button id="outreach-save" class="secondary" type="button">保存旧版兼容地址</button></div><p class="hint">仅供已有远端配置维护。新工作台日常使用无需此配置。</p></details>
       </section>
       <section id="draft-composer" class="card" aria-labelledby="composer-title">
         <div class="section-head"><div><h2 id="composer-title">选择达人与渠道</h2><p id="draft-selection">最多选择 10 位。</p></div></div>
         <input id="creator-search" placeholder="按编号、账号或选题搜索" aria-label="搜索达人">
-        <div id="creator-list" class="draft-creators"><p class="hint">连接工作台后显示达人列表。</p></div>
+        <div id="creator-list" class="draft-creators"><p class="hint">读取本地工作台后显示达人列表。</p></div>
         <fieldset class="draft-channels"><legend>渠道</legend>
           <label><input type="checkbox" name="channel" value="email" checked>邮件</label>
           <label><input type="checkbox" name="channel" value="dm" checked>普通私信</label>

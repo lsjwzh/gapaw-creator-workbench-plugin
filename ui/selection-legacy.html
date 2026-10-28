@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>达人工作台 · 按回本率选人（二级入口）</title>
+  <link rel="stylesheet" href="./style.css">
+  <script src="./data-workflow.js" defer></script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="./index.html"><span class="mark" aria-hidden="true">达</span>达人工作台</a>
+      <nav aria-label="工作台导航">
+        <a href="./index.html">返回工作台</a><a href="#composer">找达人</a><a href="./drafts.html">草稿任务</a><a href="#connections">连接设置</a>
+        <a href="./index.html#data">本地数据管理</a>
+      </nav>
+    </header>
+    <main>
+      <section class="intro"><div class="eyebrow">从一次有依据的合作开始</div><h1>按回本率，找到适合合作的达人</h1><p>套用现有方法，补充这次的目标，再交给 MultiCC 执行。后续沟通继续留在原任务。</p></section>
+      <div id="notice" class="notice" role="status" aria-live="polite">正在读取插件配置…</div>
+      <section class="card workspace-card" aria-labelledby="workspace-title">
+        <div class="section-head"><div><h2 id="workspace-title">专属工作目录</h2><p id="workspace-description">先为后续任务选择一个已登记的持久目录。</p></div><button id="refresh" class="secondary" type="button">刷新状态</button></div>
+        <p id="workspace-path" class="path"></p>
+        <div id="workspace-picker" class="workspace-picker" hidden>
+          <label for="directory">选择 MultiCC 中的目录</label>
+          <div class="inline"><select id="directory"><option value="">正在读取目录…</option></select><button id="save-workspace" class="primary" type="button">使用此目录</button></div>
+          <p class="hint">需要新目录时，先在 <a href="/manage" target="_blank" rel="noopener noreferrer">MultiCC 管理页</a>中创建并登记。更换默认目录只影响新任务，历史任务保留原归属。</p>
+        </div>
+        <a id="host-workspace" href="/manage" target="_blank" rel="noopener noreferrer" hidden>前往宿主插件设置修改目录 ↗</a>
+      </section>
+      <div class="layout">
+        <section id="composer" class="card" aria-labelledby="composer-title">
+          <div class="section-head"><div><h2 id="composer-title">发起选人任务</h2><p>提示词是起点，可按本次合作修改。</p></div><button id="restore-template" class="subtle" type="button">恢复示例</button></div>
+          <div class="method-note">扣广回本率看的是“有多少条新视频严格回本”。请同时看样本量与平均结余，费用未知时先补数据。</div>
+          <form id="task-form">
+            <label for="prompt">任务内容</label><textarea id="prompt" rows="17" maxlength="32000" placeholder="正在读取提示词示例…" required></textarea>
+            <div class="runtime-grid">
+              <div><label for="cli">执行工具 <span class="hint">必选</span></label><select id="cli" required><option value="">请选择执行工具</option><option value="codex-exp">Codex</option><option value="claude">Claude Code</option></select></div>
+              <div><label for="model">模型 <span class="hint">可选</span></label><input id="model" maxlength="160" placeholder="留空使用该工具的已配置模型"></div>
+            </div>
+            <div class="composer-footer"><p class="hint">点击后会真实创建 MultiCC 任务并发送以上内容。平台连接缺失时，由任务提示补齐；不会自动联系达人。</p><button id="send" class="primary" type="submit" disabled>发送到 MultiCC</button></div>
+          </form>
+        </section>
+        <aside>
+          <section id="connections" class="card" aria-labelledby="connections-title">
+            <div class="section-head"><h2 id="connections-title">连接设置</h2><button id="refresh-connections" class="subtle" type="button">刷新检测</button></div>
+            <div class="browser-picker"><label for="browser-profile">专用 Chrome 身份</label><select id="browser-profile" disabled><option value="">正在读取身份…</option></select><div class="browser-actions"><button id="save-browser" class="secondary" type="button" disabled>保存绑定</button><button id="unbind-browser" class="subtle" type="button" disabled>解除绑定</button></div><p class="hint">切换默认身份只影响新任务，历史任务保留原绑定。</p></div>
+            <button id="probe-browser" class="secondary" type="button" disabled>检测只读连接</button><p class="hint">仅检测已绑定身份的连接，不启动浏览器，也不读取页面。连接成功不代表出口或平台字段已验证。</p>
+            <div id="connection-list"><p class="hint">正在读取环境状态…</p></div><p class="hint">未绑定也可发起提示词任务，在原任务补充资料。本插件不会回退普通浏览器；页面列表与文字需在任务记录中手动读取。</p>
+          </section>
+          <section class="card help-card"><h2>工作如何继续</h2><ol><li>这里发送任务并保存目录与提示词快照。</li><li>查看本次任务的读取要求，再进入 MultiCC 原任务补充资料、处理登录或确认。</li><li>选择结果文件后先只读预检，核对样本、费用缺项与来源提示，再点击保存报告。报告仍待采纳，正式达人库回写尚未接入。</li></ol></section>
+        </aside>
+      </div>
+      <section class="history" aria-labelledby="history-title"><div class="section-head"><h2 id="history-title">任务记录</h2><span id="history-count" class="hint"></span></div><div id="operations"><p class="empty">正在读取历史任务…</p></div></section>
+    </main>
+    <footer>任务与报告暂存可用 · 兼容桥接支持手动只读页面 · 平台结构化采集与正式达人库采纳仍待接入</footer>
+  </div>
+</body>
+</html>

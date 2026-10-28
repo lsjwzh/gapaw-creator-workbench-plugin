@@ -1,0 +1,18 @@
+{
+  "Cargo.toml": "a4c026a6eaaa49803a3ebfd2ddd137f328a5c93ce3aee7fd05401da48356d27c",
+  "Cargo.lock": "fda4952eda220cf472462fa948be4c27c60639682c3f8aecd19aed29b0bd2213",
+  "plugin.json": "8a8311bb44819c022a3bd219f5d77d631a9206ff14545e8075ef2da6d5b00b86",
+  "src/core.rs": "e0a8bd1e4d5cf328f1f11e1edf3c4101cd467ffc20278ec05615d8893cc244ae",
+  "src/subs.rs": "5267ccaab33e6b41b4df93d614668449834318d0fd2c6bdb08ded50b2c93e78c",
+  "src/browser_session.rs": "5dfd330ad0226023eb1a5da71ee7b1ce1a00c880a0790d6576206593e4e6f844",
+  "src/proxy.rs": "55ec04fc8a9c1bdaee45d58ac354793c483c4b8240b12d010f47d3e24897acb3",
+  "src/fingerprint.rs": "68ee9e3c218a43049706d4e5add150b06b07eed2f9c1b77709626c6b58ecf537",
+  "src/dock_badge_macos.js": "a9fcdaa2235e373d72ced77f8e760ff0ba1025564d39f464c185103b60a6f294",
+  "src/store.rs": "da04c5feba3c5208b4cbb96755f3edd9805615b28f7ebb165c5d81c1727217c4",
+  "src/geo.rs": "7ef0054ef03ef568da579d50e4bfece3a6938e1cd7131c091b39b8ba98c9ca48",
+  "src/dock_badge.rs": "335b9609c0473e8dec3c99e6d343d741fbcef6ce23aeab7bd5a2d9813d5ff858",
+  "src/chrome.rs": "c51cbc11613d9c67c476c6ff158148782f5517017c174fc2645fa82fe91bbcdc",
+  "src/main.rs": "bd41f9700a93589edb2f783939a0e87cc2e1552fe9866b46c9bca20522114908",
+  "src/relay.rs": "4b9607daed7715461306411779db420aa7cff02e3fa1041645d67f40f7adc860",
+  "extension/fingerprint.js": "ab1cfdb792ae6f3433000a7fcd8a2314f20b4a7250f417fe76d302224cf8e9d1"
+}

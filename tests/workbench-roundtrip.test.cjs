@@ -12,12 +12,12 @@ const binary = path.resolve(process.env.GAPAW_TEST_BINARY || '/tmp/gapaw-creator
 const bundle = path.resolve(__dirname, '../integrations/workbench-adoption');
 const source = process.env.GAPAW_OUTREACH_SOURCE || '/Users/Zhuanz/Downloads/gapasea-all-in-one/code/gapasea-marketing/tools/creator_outreach';
 
-async function fixture(t) {
+async function fixture(t, local = false) {
   assert.ok(fs.existsSync(binary), '请先构建真实 Rust 程序或设置 GAPAW_TEST_BINARY');
   const root = fs.realpathSync(fs.mkdtempSync('/tmp/gapaw-roundtrip-'));
   // 专属目录约束拒绝 /tmp；这里只建空测试目录，业务数据始终在 /tmp。
   const workspace = fs.realpathSync(fs.mkdtempSync(path.join(os.homedir(), '.gapaw-roundtrip-')));
-  const runtime = path.join(root, 'runtime'), database = path.join(root, 'outreach.sqlite3');
+  const runtime = path.join(root, 'runtime'); let database = path.join(root, 'outreach.sqlite3');
   const token = crypto.randomBytes(48).toString('hex');
   const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1', GAPAW_CREATOR_DATA_DIR: path.join(root, 'plugin-state'),
     GAPAW_CHROME_PLUGIN_DIR: path.join(root, 'unused-source'), GAPAW_CHROME_DATA_DIR: path.join(root, 'unused-chrome'),
@@ -68,8 +68,16 @@ with sqlite3.connect(sys.argv[1]) as c:
 with sqlite3.connect(sys.argv[1]) as c:
  print(json.dumps({n:c.execute("SELECT count(*) FROM gapaw_selection_"+n).fetchone()[0] for n in ("batches","candidates","observations","receipts","audit")}))`, [database]));
   }
+  let initialized;
+  if (local) {
+    const preview = run('preview-workbench-import', {sourcePath:database});
+    run('import-workbench', {sourcePath:database, expectedSourceDigest:preview.sourceDigest, confirmed:true});
+    database = path.join(env.GAPAW_CREATOR_DATA_DIR, 'workbench.sqlite');
+    initialized = run('workbench-status');
+  }
   const old = legacy();
-  const initialized = run('workbench-provider', { action: 'initialize', authorization: 'Bearer ' + token, payload: {} });
+  if (!local) {
+  initialized = run('workbench-provider', { action: 'initialize', authorization: 'Bearer ' + token, payload: {} });
   assert.equal(initialized.ready, true);
   assert.equal(legacy(), old);
   const script = "import sys;from pathlib import Path;sys.path.insert(0,sys.argv[1]);from server import make_handler;from store import Store;from http.server import ThreadingHTTPServer;s=ThreadingHTTPServer(('127.0.0.1',0),make_handler(Store(sys.argv[2]),Path(sys.argv[1])));print(s.server_port,flush=True);s.serve_forever()";
@@ -86,6 +94,7 @@ with sqlite3.connect(sys.argv[1]) as c:
     server.stdout.on('data', read); server.once('error', fail); server.once('exit', stopped);
   });
   env.GAPAW_WORKBENCH_URL = 'http://127.0.0.1:' + port;
+  }
   run('configure', { workspace: { dirId: 'roundtrip-dir', path: workspace } });
   const operation = run('prepare-operation', { requestId: 'roundtrip-operation', prompt: '仅验证合成候选保存，不访问平台或发送消息。', runtime: { cli: 'codex' } }).operation;
   const owner = { operationId: operation.id, taskId: 'roundtrip-task' };
@@ -105,8 +114,8 @@ function report() {
     coverage: '中'.repeat(2001) + '\n\t未核验覆盖', missingFields: ['覆盖\n未知'], candidates: [candidate('known', '1'), candidate('unknown', null)] };
 }
 
-test('真实双端贯通：长中文多行报告预览零写入，采纳读回、分页与旧库保护', async t => {
-  const f = await fixture(t), inputReport = report();
+for (const local of [false,true]) test((local ? '本地无旧服务' : '旧版双端兼容')+'：长中文多行报告预览零写入，采纳读回、分页与事实保护', async t => {
+  const f = await fixture(t,local), inputReport = report();
   const stored = f.run('submit-result', { ...f.owner, resultId: 'roundtrip-result', expectedRevision: 0, report: inputReport });
   assert.equal(stored.record.computed.candidates[1].summary.breakEvenRate, null);
   const observation = f.run('observation-contract', f.owner).templates[0].submissionTemplate;

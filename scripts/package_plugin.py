@@ -213,6 +213,15 @@ def build(source, output=None, binary=None):
         if not readme.is_file() or readme.is_symlink():
             raise ValueError("缺少发行专用 PLUGIN_README.md，避免误带开发机器信息")
         shutil.copy2(readme, stage / "README.md")
+        changelog = source / "CHANGELOG.md"
+        if changelog.exists():
+            if changelog.is_symlink() or not changelog.is_file():
+                raise ValueError("发布说明必须是普通文件")
+            notes = changelog.read_text(encoding="utf-8")
+            entry = re.search(r"^## " + re.escape(manifest["version"]) + r"\s*\n(.*?)(?=^## |\Z)", notes, re.M | re.S)
+            if not entry or not entry.group(1).strip() or not notes.isascii():
+                raise ValueError("当前版本发布说明缺失、为空或未通过英文校验")
+            shutil.copy2(changelog, stage / "CHANGELOG.md")
         for name in ("ui", "resources", "src"):
             copy_tree(source / name, stage / name)
         # 配套桥接源码与升级工具随开发包保留，不自动安装或执行。

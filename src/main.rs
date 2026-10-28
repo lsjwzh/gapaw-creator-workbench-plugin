@@ -8,11 +8,21 @@ use std::time::Duration;
 use uuid::Uuid;
 mod bridge;
 mod browser;
+mod browser_catalog;
 mod console;
 mod drafts;
+mod exports;
+mod facts;
+mod local_backend;
+mod local_export;
+mod local_migration;
+mod local_store;
 mod observations;
 mod platform;
+mod platform_check;
 mod results;
+mod selection;
+mod selection_data;
 mod workbench;
 mod workbench_store;
 
@@ -101,6 +111,8 @@ fn open_db(path: &Path, write: bool) -> Result<Option<Connection>> {
         observations::init(&db)?;
         workbench::init(&db)?;
         drafts::init(&db)?;
+        facts::init(&db)?;
+        selection::init(&db)?;
     }
     Ok(Some(db))
 }
@@ -336,6 +348,34 @@ fn execute(
     if input.to_string().len() > 1024 * 1024 {
         return Err("命令输入超过 1 MiB 限制".into());
     }
+    if ["local-workbench-status", "local-workbench-init"].contains(&command) {
+        return local_backend::execute(command, input, path);
+    }
+    if command.starts_with("selection-") {
+        return selection::execute(command, input, path, host);
+    }
+    if ["preview-workbench-import", "import-workbench"].contains(&command) {
+        let result = local_migration::execute(command, input, path)?;
+        if command == "import-workbench" {
+            local_backend::activate(path)?;
+        }
+        return Ok(result);
+    }
+    if command == "workbench-export" {
+        return exports::execute(input, path);
+    }
+    if [
+        "workbench-fact-contract",
+        "workbench-fact-status",
+        "edit-settings",
+        "record-event",
+        "void-event",
+        "record-message",
+    ]
+    .contains(&command)
+    {
+        return facts::execute(command, input, path);
+    }
     if [
         "result-contract",
         "get-result",
@@ -416,7 +456,7 @@ fn execute(
             return Ok(json!({"operations":ops}));
         }
         return Ok(
-            json!({"plugin":{"id":ID,"version":VERSION},"workspace":effective_workspace(db.as_ref(),host,false)?,"browserBinding":browser::binding(db.as_ref())?,"template":{"version":METHOD_VERSION,"text":TEMPLATE},"operations":ops,"capabilities":{"taskDispatch":true,"platformRead":false,"browserBridge":false,"browserReadBridge":true,"reportCollection":true,"resultValidation":true,"platformContract":true,"sourceObservations":true,"workbenchCandidateClient":true,"resultWriteback":false,"draftWriteback":true}}),
+            json!({"plugin":{"id":ID,"version":VERSION},"workspace":effective_workspace(db.as_ref(),host,false)?,"browserBinding":browser::binding(db.as_ref())?,"template":{"version":METHOD_VERSION,"text":TEMPLATE},"operations":ops,"capabilities":{"taskDispatch":true,"platformRead":false,"browserBridge":false,"browserReadBridge":true,"reportCollection":true,"resultValidation":true,"platformContract":true,"sourceObservations":true,"workbenchCandidateClient":true,"resultWriteback":false,"draftWriteback":true,"manualFacts":true,"workbenchExport":true,"outboundSend":false,"inboxSync":false}}),
         );
     }
     if ![

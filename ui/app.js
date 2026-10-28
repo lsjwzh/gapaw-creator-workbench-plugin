@@ -183,7 +183,7 @@
       $('save-browser').disabled = locked || !available || !browser.selectedId;
       $('unbind-browser').disabled = locked || !status?.binding?.profile || browser.stale;
       $('refresh-connections').disabled = browser.loading || browser.saving || browser.probe.loading;
-      $('probe-browser').disabled = locked || browser.stale || !status?.binding?.profile;
+      $('probe-browser').disabled = locked || browser.stale || !status?.binding?.profile || (status?.source?.catalogTransport === 'host-command' && status?.source?.readOnlyBridge !== true);
       $('probe-browser').textContent = browser.probe.loading ? '正在检测连接…' : '检测只读连接';
     }
     function putOperation(operation) {
@@ -438,7 +438,7 @@
     function browserBindingMessage(data) {
       const profile = data.binding?.profile;
       const identity = profile ? profile.name + '（' + profile.id + '）' : '';
-      return { unbound: '尚未绑定专用身份，可先发任务补充资料。', bound: '当前绑定：' + identity, missing: '原身份已不存在：' + identity + '。请在 Chrome 插件恢复原身份，或绑定其他身份后发起新任务。', changed: '原身份配置的保存时间已变化：' + identity + '。请核对原插件配置；历史任务需恢复原身份配置，或使用新绑定发起新任务。', unavailable: '当前无法读取 Chrome 身份来源，请在原插件检查版本和配置后刷新。', legacy_unbound: '本次任务未记录浏览器绑定，不会套用当前默认身份。' }[data.bindingState] || '浏览器身份状态尚未确认。';
+      return { unbound: '尚未绑定专用身份，可先发任务补充资料。', bound: '当前绑定：' + identity, missing: '原身份已不存在：' + identity + '。请在 Chrome 插件恢复原身份，或绑定其他身份后发起新任务。', changed: '原身份配置的保存时间已变化：' + identity + '。请核对原插件配置；历史任务需恢复原身份配置，或使用新绑定发起新任务。', unavailable: '当前无法读取 Chrome 身份来源，请根据下方原因检查宿主接口与原插件状态后刷新。', legacy_unbound: '本次任务未记录浏览器绑定，不会套用当前默认身份。' }[data.bindingState] || '浏览器身份状态尚未确认。';
     }
     function validateBrowserStatus(data, scope) {
       if (!data?.source || !Array.isArray(data.environments) || !data.binding || !Array.isArray(data.checks) || !Array.isArray(data.fieldRequirements) || data.scope !== scope || !Number.isSafeInteger(data.binding.revision)) throw new Error('环境检测返回格式不兼容，请更新插件后重试。');
@@ -455,7 +455,8 @@
         if (check.message) row.append(element('p', check.message)); panel.append(row);
       }
       const bridge = data.checks.find(check => check.id === 'bridge');
-      if (!bridge || ['not_implemented', 'not_integrated', 'requires_upgrade'].includes(bridge.status)) panel.append(element('p', '只读桥接需要升级：请在 Chrome 插件确认兼容的桥接版本，再检测连接。', 'browser-warning'));
+      if (data.source.catalogTransport === 'host-command' && bridge?.status === 'not_integrated') panel.append(element('p', '实例可选择并绑定；平台登录和页面读取尚未接入。这里的待接入不是浏览器版本不兼容。', 'browser-warning'));
+      else if (!bridge || ['not_implemented', 'not_integrated', 'requires_upgrade'].includes(bridge.status)) panel.append(element('p', '只读桥接需要升级：请在 Chrome 插件确认兼容的桥接版本，再检测连接。', 'browser-warning'));
       panel.append(element('p', '进程存活仅是线索。连接检测不启动浏览器，也不读取页面；页面文字需在原任务手动读取。出口未实测，平台字段完整性仍需单独验证。', 'hint'));
       if (data.fieldRequirements.length) {
         const details = element('details', undefined, 'browser-fields'); details.append(element('summary', '选人需要的平台资料'));
@@ -702,7 +703,7 @@
       if (browser.error) container.append(element('p', browser.error, 'operation-error'));
       if (data) {
         const row = element('div', undefined, 'connection'); const heading = element('div', undefined, 'connection-top');
-        heading.append(element('strong', 'Chrome 出口隔离'), element('span', browser.stale ? '需重新检测' : data.source.installed ? data.source.supported ? data.source.available ? '已发现兼容来源' : '来源不可读取' : '版本待适配' : '未安装', 'tag neutral')); row.append(heading);
+        heading.append(element('strong', 'Chrome 出口隔离'), element('span', browser.stale ? '需重新检测' : data.source.installed ? data.source.supported ? data.source.available ? '实例清单可读取' : '来源不可读取' : '查询能力待适配' : data.source.installed === false ? '未安装' : '来源未确认', 'tag neutral')); row.append(heading);
         if (data.source.message) row.append(element('p', data.source.message));
         row.append(element('p', '创建、修改或启动专用身份，请在原 Chrome 插件操作。这里仅保存绑定和读取状态。'));
         container.append(row, renderBrowserChecks(data, browser.stale));

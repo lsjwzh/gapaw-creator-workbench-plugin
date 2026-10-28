@@ -49,7 +49,7 @@
 
     function renderCreators() {
       const list = $('creator-list'); list.replaceChildren();
-      if (!state.creators.length) { list.append(el('p', state.status?.available ? '工作台没有达人记录。' : '连接工作台后显示达人列表。', 'hint')); controls(); return; }
+      if (!state.creators.length) { list.append(el('p', state.status?.available ? '工作台没有达人记录。' : '请先在首页的数据管理中迁入记录或建立本地工作台。', 'hint')); controls(); return; }
       const q = $('creator-search').value.trim().toLowerCase();
       for (const c of state.creators) {
         if (q && ![c.id, c.handle, c.topic].some(v => String(v || '').toLowerCase().includes(q))) continue;
@@ -67,13 +67,18 @@
       try {
         state.status = await client.run('outreach-status');
         $('outreach-state').textContent = state.status.message;
-        if (state.status.url && !$('outreach-url').value) $('outreach-url').value = state.status.url;
-        if (state.status.available) { state.creators = (await client.run('outreach-creators')).items; notice('已连接现有达人工作台，共 ' + state.creators.length + ' 位达人。'); }
+        const local = state.status.mode === 'local' || String(state.status.url || '').startsWith('local-workbench:');
+        $('outreach-legacy').hidden = local || !state.status.configured;
+        if (!local && /^http:\/\/127\.0\.0\.1:\d+$/.test(state.status.url || '')) $('outreach-url').value = state.status.url; else $('outreach-url').value = '';
+        $('outreach-save').disabled = local;
+        state.selected.clear();
+        if (state.status.available) { state.creators = (await client.run('outreach-creators')).items; notice((local ? '本地工作台' : '旧版兼容来源') + '共 ' + state.creators.length + ' 位达人。'); }
         else { state.creators = []; notice(state.status.message, state.status.configured); }
-      } catch (error) { notice('读取工作台状态失败：' + error.message, true); }
+      } catch (error) { state.status = null; state.creators = []; state.selected.clear(); notice('读取工作台状态失败：' + error.message, true); }
       renderCreators();
     }
     async function saveURL() {
+      if (state.status?.mode === 'local' || String(state.status?.url || '').startsWith('local-workbench:')) return;
       state.busy = true; controls();
       try { await client.run('outreach-configure', { url: $('outreach-url').value.trim() }); await loadStatus(); }
       catch (error) { notice('未保存：' + error.message, true); }

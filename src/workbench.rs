@@ -3,7 +3,13 @@ use crate::{identifier, now, open_db, platform::bound_operation, Result};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::HashSet, env, io::Read, path::Path, time::Duration};
+use std::{
+    collections::HashSet,
+    env,
+    io::Read,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 const MAX_PAYLOAD: usize = 900_000;
 const MAX_RESPONSE: usize = 2 * 1024 * 1024;
@@ -91,10 +97,22 @@ pub(crate) fn endpoint(raw: &str) -> Result<String> {
 struct Client {
     endpoint: String,
     token: String,
+    local: Option<PathBuf>,
     agent: ureq::Agent,
 }
 impl Client {
-    fn configured() -> Result<Option<Self>> {
+    fn configured(path: &Path) -> Result<Option<Self>> {
+        let db = open_db(path, false)?;
+        if let Some(outreach) = crate::drafts::Outreach::configured(db.as_ref())? {
+            if outreach.is_local() {
+                return Ok(Some(Self {
+                    endpoint: outreach.root,
+                    token: String::new(),
+                    local: Some(crate::local_backend::business_path(path)?),
+                    agent: ureq::AgentBuilder::new().build(),
+                }));
+            }
+        }
         let url = env::var("GAPAW_WORKBENCH_URL").ok();
         let token = env::var("GAPAW_WORKBENCH_ADOPTION_TOKEN").ok();
         if url.is_none() && token.is_none() {
@@ -113,13 +131,20 @@ impl Client {
         Ok(Some(Self {
             endpoint,
             token,
+            local: None,
             agent,
         }))
     }
-    fn required() -> Result<Self> {
-        Self::configured()?.ok_or_else(|| "请先配置本机工作台候选区接口与授权".into())
+    fn required(path: &Path) -> Result<Self> {
+        Self::configured(path)?.ok_or_else(|| "请先迁入数据或建立本地工作台".into())
     }
     fn call(&self, action: &str, payload: &Value) -> Result<Value> {
+        if let Some(path) = &self.local {
+            if self.endpoint != format!("local-workbench:{}", crate::local_store::identity(path)?) {
+                return Err("本地业务库身份已变化，请重新核对".into());
+            }
+            return crate::workbench_store::local(action, payload, path);
+        }
         let response = self
             .agent
             .post(&format!("{}/api/plugin-selection", self.endpoint))
@@ -601,7 +626,13 @@ impl Plan {
     }
     fn validate(&self) -> Result<()> {
         validate_payload(&self.payload)?;
-        endpoint(&self.endpoint)?;
+        if let Some(id) = self.endpoint.strip_prefix("local-workbench:") {
+            if uuid::Uuid::parse_str(id).is_err() || id.len() != 36 {
+                return Err("提交计划的本地业务身份无效".into());
+            }
+        } else {
+            endpoint(&self.endpoint)?;
+        }
         preview_valid(&self.preview, &self.payload)?;
         text(&json!(self.message), 2000)?;
         if ![
@@ -784,7 +815,7 @@ fn prepare(input: &Value, path: &Path) -> Result<Value> {
         {
             return Err("同一采纳编号不能改变原操作、报告或观测附件".into());
         }
-        let client = Client::required()?;
+        let client = Client::required(path)?;
         check_client(&client, &old)?;
         return Ok(json!({"plan":old.public(),"preview":old.preview}));
     }
@@ -797,7 +828,7 @@ fn prepare(input: &Value, path: &Path) -> Result<Value> {
     let record = report(&db, &op, &task, &result, true)?;
     let observations = observations(&db, &input["observationIds"], &op, &task)?;
     drop(db);
-    let client = Client::required()?;
+    let client = Client::required(path)?;
     let store = client.ready_store()?;
     let payload = json!({"schemaVersion":1,"adoptionId":id,"expectedStoreId":store,"operationId":op,"taskId":task,"resultId":result,"resultRevision":record["revision"],"report":record["report"],"computed":record["computed"],"observations":observations});
     validate_payload(&payload)?;
@@ -857,7 +888,7 @@ fn adopt(input: &Value, path: &Path) -> Result<Value> {
     if input["expectedPayloadHash"] != hash(&plan.payload) {
         return Err("提交摘要与已准备计划不一致，请重新核对".into());
     }
-    let client = Client::required()?;
+    let client = Client::required(path)?;
     check_client(&client, &plan)?;
     if plan.status == "verified" {
         return Ok(json!({"plan":plan.public()}));
@@ -1018,19 +1049,19 @@ pub fn execute(command: &str, input: Value, path: &Path) -> Result<Value> {
     match command {
         "workbench-status" => {
             keys(&input, &[], &[])?;
-            match Client::configured() {
+            match Client::configured(path) {
                 Ok(None) => Ok(
-                    json!({"configured":false,"available":false,"ready":false,"businessStoreId":null,"message":"尚未配置本机工作台候选区接口。"}),
+                    json!({"configured":false,"available":false,"ready":false,"businessStoreId":null,"message":"尚未建立本地工作台，请先迁入数据或建立空库。"}),
                 ),
                 Err(_) => Ok(
-                    json!({"configured":true,"available":false,"ready":false,"businessStoreId":null,"message":"工作台接口或授权配置无效，请检查本机地址和授权设置。"}),
+                    json!({"configured":true,"available":false,"ready":false,"businessStoreId":null,"message":"工作台配置或数据库无效，请查看本地数据管理。"}),
                 ),
                 Ok(Some(client)) => match client.status() {
                     Ok(s) => Ok(
                         json!({"configured":true,"available":true,"ready":s["ready"],"businessStoreId":s["businessStoreId"],"message":if s["ready"]==true{"工作台候选区可用；写入后仍需读回核对，候选身份与指标保持待核验。"}else{"工作台候选区尚未显式初始化。"}}),
                     ),
                     Err(_) => Ok(
-                        json!({"configured":true,"available":false,"ready":false,"businessStoreId":null,"message":"无法确认工作台候选区可用，请检查本机服务、授权和协议。"}),
+                        json!({"configured":true,"available":false,"ready":false,"businessStoreId":null,"message":"无法确认候选区可用，请检查业务库结构和本地数据状态。"}),
                     ),
                 },
             }
@@ -1041,7 +1072,7 @@ pub fn execute(command: &str, input: Value, path: &Path) -> Result<Value> {
             keys(&input, &["adoptionId"], &[])?;
             let id = identifier(&input, "adoptionId")?;
             let plan = required_plan(path, &id)?;
-            let client = Client::required()?;
+            let client = Client::required(path)?;
             check_client(&client, &plan)?;
             Ok(json!({"plan":reconcile(&client,path,&plan)?.public()}))
         }
@@ -1082,7 +1113,7 @@ pub fn execute(command: &str, input: Value, path: &Path) -> Result<Value> {
         "workbench-list" | "workbench-batch" => {
             let batch = command == "workbench-batch";
             let payload = page_input(&input, batch)?;
-            let client = Client::required()?;
+            let client = Client::required(path)?;
             let store = client.ready_store()?;
             page_output(
                 client.call(if batch { "batch" } else { "list" }, &payload)?,

@@ -23,7 +23,7 @@ async function setup(t) {
   }));
   fs.writeFileSync(path.join(data, 'seed.json'), JSON.stringify({ source_sha256: 'fixture', records }));
   const port = await freePort();
-  const proc = spawn('python3', [path.join(workbenchSource, 'server.py'), '--data-dir', data, '--port', String(port)], { stdio: 'ignore' });
+  const proc = spawn('python3', ['-B', path.join(workbenchSource, 'server.py'), '--data-dir', data, '--port', String(port)], { stdio: 'ignore' });
   const state = fs.mkdtempSync(path.join(os.tmpdir(), 'gapaw-console-state-'));
   const workspace = fs.realpathSync(fs.mkdtempSync(path.join(os.homedir(), '.gapaw-console-')));
   t.after(() => { proc.kill(); for (const d of [data, state, workspace]) fs.rmSync(d, { recursive: true, force: true }); });
@@ -38,8 +38,22 @@ async function setup(t) {
   const detail = id => fetch(url + '/api/creators/' + id).then(r => r.json());
   run('configure', { workspace: { dirId: 'fixture-dir', path: workspace } });
   run('outreach-configure', { url });
-  return { run, fail, post, detail };
+  return { run, fail, post, detail, url };
 }
+
+test('人工文案绑定读取时的工作台，另页切换同编号同版本来源也拒绝写入', async t => {
+  const first = await setup(t), second = await setup(t);
+  const shown = first.run('workbench-creator', { creatorId: 'GW901' });
+  assert.match(shown.expectedSource, /^[a-f0-9]{64}$/);
+  const payload = { creatorId: 'GW901', channel: 'dm', subject: '', body: '绑定来源的文案【固定费】', revision: 0, expectedSource: shown.expectedSource };
+  const before = await second.detail('GW901');
+  first.run('outreach-configure', { url: second.url });
+  first.fail('edit-draft', payload, /地址已变化/);
+  first.fail('edit-draft', { ...payload, expectedSource: null }, /地址已变化/);
+  assert.deepEqual(await second.detail('GW901'), before);
+  first.run('outreach-configure', { url: first.url });
+  assert.equal(first.run('edit-draft', payload).status, 'saved');
+});
 
 test('首页总览：待回复按最后一条真实来信判断，自动回复不算', async t => {
   const { run, post } = await setup(t);

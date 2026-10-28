@@ -89,7 +89,7 @@ fn sql_normalized(sql: &str) -> String {
         .to_ascii_lowercase()
         .replace("ifnotexists", "")
 }
-fn schema(db: &Connection) -> Result<bool> {
+fn schema(db: &Connection, local: bool) -> Result<bool> {
     let mut statement = db
         .prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_autoindex_%'")
         .map_err(|_| "无法核对业务库结构")?;
@@ -106,12 +106,19 @@ fn schema(db: &Connection) -> Result<bool> {
     let mut own = 0;
     for row in rows {
         let (kind, name, sql) = row.map_err(|_| "无法核对业务库结构")?;
+        if local && name == "gapaw_local_migration_receipts" && kind == "table" {
+            continue;
+        }
         let expected = LEGACY.iter().chain(OWN.iter()).find(|(n, _)| *n == name);
         let Some((_, expected_sql)) = expected else {
+            if local && !name.starts_with("gapaw_selection_") {
+                continue;
+            }
             return Err("业务库包含未知结构，拒绝自动接入".into());
         };
         if kind != "table"
-            || sql_normalized(sql.as_deref().unwrap_or("")) != sql_normalized(expected_sql)
+            || ((!local || name.starts_with("gapaw_selection_"))
+                && sql_normalized(sql.as_deref().unwrap_or("")) != sql_normalized(expected_sql))
         {
             return Err("业务库表结构与已验证版本不一致".into());
         }
@@ -335,19 +342,28 @@ pub fn execute(input: Value) -> Result<Value> {
         .filter(|v| v.is_object())
         .ok_or("缺少候选区载荷")?;
     let path = configured_path()?;
-    let mut db = open(&path, ["initialize", "adopt"].contains(&action))?;
+    execute_at(action, payload, &path, false)
+}
+
+pub(crate) fn local(action: &str, payload: &Value, path: &Path) -> Result<Value> {
+    crate::local_store::identity(path)?;
+    execute_at(action, payload, path, true)
+}
+
+fn execute_at(action: &str, payload: &Value, path: &Path, local: bool) -> Result<Value> {
+    let mut db = open(path, ["initialize", "adopt"].contains(&action))?;
     if !["initialize", "adopt"].contains(&action) {
         // 只读操作使用同一 SQLite 快照；连接离开作用域时释放读事务。
         db.execute_batch("BEGIN DEFERRED")
             .map_err(|_| "无法创建候选区一致读取视图")?;
     }
-    let initialized = schema(&db)?;
+    let initialized = schema(&db, local)?;
     if action == "initialize" {
         keys(payload, &[])?;
         let transaction = db
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| "业务库正忙，初始化未执行")?;
-        if !schema(&transaction)? {
+        if !schema(&transaction, local)? {
             for (_, sql) in OWN {
                 transaction
                     .execute_batch(sql)
@@ -382,7 +398,7 @@ pub fn execute(input: Value) -> Result<Value> {
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(|_| "业务库正忙，候选保存未执行")?;
             // 在持有写锁的同一事务内重新核对结构、归属、数学与幂等。
-            if !schema(&transaction)? {
+            if !schema(&transaction, local)? {
                 return Err("候选区结构已改变".into());
             }
             let id = store_id(&transaction)?;

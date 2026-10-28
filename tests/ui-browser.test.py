@@ -87,7 +87,7 @@ def respond(route):
     calls.append((request.method, url))
     if url.startswith("/plugins/gapaw-creator-workbench/ui/"):
         name = url.rsplit("/", 1)[-1]
-        types = {"selection.html": "text/html; charset=utf-8", "app.js": "application/javascript", "data-workflow.js": "application/javascript", "candidates.js": "application/javascript", "candidates.html": "text/html; charset=utf-8", "connection-help.html": "text/html; charset=utf-8", "style.css": "text/css"}
+        types = {"selection-legacy.html": "text/html; charset=utf-8", "app.js": "application/javascript", "data-workflow.js": "application/javascript", "candidates.js": "application/javascript", "candidates.html": "text/html; charset=utf-8", "connection-help.html": "text/html; charset=utf-8", "style.css": "text/css"}
         route.fulfill(status=200, body=(ROOT / "ui" / name).read_text(), content_type=types[name])
         return
     if url == "/api/directories":
@@ -261,7 +261,7 @@ with sync_playwright() as p:
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.route("**/*", respond)
-        page.goto("https://plugin.test/plugins/gapaw-creator-workbench/ui/selection.html")
+        page.goto("https://plugin.test/plugins/gapaw-creator-workbench/ui/selection-legacy.html")
         page.get_by_text("请先选择专属工作目录。", exact=True).wait_for()
         assert page.locator("#send").is_disabled()
         assert not any(method == "POST" and url == "/api/air/tasks" for method, url in calls)
@@ -367,7 +367,8 @@ with sync_playwright() as p:
         help_page.route("**/*", respond)
         help_response = help_page.goto("https://plugin.test/plugins/gapaw-creator-workbench/ui/connection-help.html")
         assert help_response.status == 200
-        help_page.get_by_role("heading", name="工作台候选区连接说明", exact=True).wait_for()
+        help_page.get_by_role("heading", name="工作台数据与候选区说明", exact=True).wait_for()
+        help_page.get_by_role("heading", name="浏览器实例与登录检测", exact=True).wait_for()
         help_page.get_by_role("heading", name="结果未知时如何恢复", exact=True).wait_for()
         assert help_page.locator("input, textarea, form, script").count() == 0
         assert help_page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
