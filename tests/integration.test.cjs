@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { createClient, createDispatcher } = require('../ui/app.js');
+const { createClient, createDispatcher } = require('../ui/client.js');
 const binary = process.env.GAPAW_TEST_BINARY || '/tmp/gapaw-creator-plugin-target/debug/gapaw-creator-workbench';
 
 function fixture(t) {

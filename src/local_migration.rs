@@ -8,6 +8,7 @@ use rusqlite::{
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeMap,
     fs::{self, OpenOptions},
     path::{Path, PathBuf},
     thread,
@@ -452,7 +453,431 @@ fn backup(source: &Connection, target: &mut Connection) -> Result<()> {
     }
 }
 
+fn valid_digest(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+}
+fn workbench_paths(state_path: &Path) -> Result<(PathBuf, PathBuf)> {
+    let parent = state_path.parent().ok_or("插件持久目录无效")?;
+    if !state_path.is_absolute() || crate::in_worktree(parent) {
+        return Err("业务库不能放在任务工作区".into());
+    }
+    let destination = parent.join("workbench.sqlite");
+    destination_parent(parent)?;
+    Ok((parent.to_path_buf(), destination))
+}
+fn table_map(tables: &Value) -> BTreeMap<String, &Value> {
+    let mut out = BTreeMap::new();
+    if let Some(rows) = tables.as_array() {
+        for row in rows {
+            if let Some(name) = row["name"].as_str() {
+                out.insert(name.to_string(), row);
+            }
+        }
+    }
+    out
+}
+fn auxiliary_untouched(name: &str, table: &Value) -> bool {
+    name.starts_with("gapaw_selection_")
+        && (name == "gapaw_selection_meta" || table["count"].as_u64() == Some(0))
+}
+fn changed_tables(current: &Value, recorded: &Value) -> Vec<String> {
+    let current = table_map(current);
+    let recorded = table_map(recorded);
+    let mut names: Vec<&String> = current.keys().chain(recorded.keys()).collect();
+    names.sort();
+    names.dedup();
+    names
+        .into_iter()
+        .filter(|name| match (current.get(*name), recorded.get(*name)) {
+            (Some(a), Some(b)) => a != b,
+            // 启用工作台时建立的选人辅助表不在迁入回执里；只有结构信息或为空时不算业务改动，
+            // 一旦有选人数据仍按改动处理，避免整库更新把它们丢掉。
+            (Some(a), None) => !auxiliary_untouched(name, a),
+            _ => true,
+        })
+        .cloned()
+        .collect()
+}
+fn table_counts(tables: &Value) -> BTreeMap<String, u64> {
+    let mut out = BTreeMap::new();
+    if let Some(rows) = tables.as_array() {
+        for row in rows {
+            if let Some(name) = row["name"].as_str() {
+                out.insert(name.to_string(), row["count"].as_u64().unwrap_or(0));
+            }
+        }
+    }
+    out
+}
+/// 预览和回执中的 before/after 都表示行数：before 为当前插件库，after 为来源快照。
+fn before_after(current: &Value, next: &Value) -> Vec<Value> {
+    let before = table_counts(current);
+    let after = table_counts(next);
+    let mut names: Vec<&String> = before.keys().chain(after.keys()).collect();
+    names.sort();
+    names.dedup();
+    names
+        .into_iter()
+        .map(|name| {
+            json!({"name":name,"before":before.get(name).copied().unwrap_or(0),"after":after.get(name).copied().unwrap_or(0)})
+        })
+        .collect()
+}
+fn ensure_no_pending_wal(path: &Path) -> Result<()> {
+    let wal = PathBuf::from(format!("{}-wal", path.display()));
+    match fs::symlink_metadata(&wal) {
+        Ok(metadata) => {
+            if !metadata.is_file() || metadata.file_type().is_symlink() {
+                return Err("业务库 WAL 附属文件不是普通文件".into());
+            }
+            if metadata.len() > 0 {
+                return Err("目标业务库存在未合并的 WAL 文件，不能整库更新".into());
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return Err("无法核对目标业务库 WAL 文件".into()),
+    }
+    Ok(())
+}
+
+/// 整库更新前的完整检查结果；预览与执行共用，避免两处判断分歧。
+struct RefreshInspection {
+    parent: PathBuf,
+    destination: PathBuf,
+    receipt: Value,
+    source_path: PathBuf,
+    summary: Value,
+    source_digest: String,
+    checked_at: String,
+    target_summary: Value,
+    changed: Vec<String>,
+}
+
+fn inspect_refresh(state_path: &Path) -> Result<RefreshInspection> {
+    let (parent, destination) = workbench_paths(state_path)?;
+    let receipt =
+        receipt(&destination)?.ok_or("目标业务库不存在或没有可匹配的迁入回执；不能整库更新")?;
+    let raw = receipt["sourcePath"]
+        .as_str()
+        .ok_or("目标迁入回执缺少来源路径；不能整库更新")?;
+    if raw.chars().any(char::is_control) || !Path::new(raw).is_absolute() {
+        return Err("目标迁入回执的来源路径无效；不能整库更新".into());
+    }
+    plain(Path::new(raw))?;
+    let source_path = Path::new(raw)
+        .canonicalize()
+        .map_err(|_| "无法定位来源数据库")?;
+    if source_path == destination || source_path == state_path {
+        return Err("来源不能是插件自己的数据库".into());
+    }
+    if !receipt["tables"].is_array() {
+        return Err("目标迁入回执缺少逐表摘要；不能整库更新".into());
+    }
+    let source = read_only(&source_path)?;
+    let reserved: i64 = source
+        .query_row(
+            "SELECT count(*) FROM sqlite_schema WHERE name=?",
+            [RECEIPTS],
+            |r| r.get(0),
+        )
+        .map_err(|_| "来源数据库结构不可读")?;
+    if reserved != 0 {
+        return Err("来源已包含插件迁入回执，不能作为旧工作台更新".into());
+    }
+    let identity_exists: i64 = source
+        .query_row(
+            "SELECT count(*) FROM meta WHERE key=?",
+            [IDENTITY_KEY],
+            |r| r.get(0),
+        )
+        .map_err(|_| "无法核对来源元数据")?;
+    if identity_exists != 0 {
+        return Err("来源已有插件业务身份，不能作为旧工作台更新".into());
+    }
+    let summary = snapshot(&source, false)?;
+    let source_hash = source_digest(&source_path, &summary);
+    let checked_at = now();
+    drop(source);
+    let target = read_only(&destination)?;
+    let target_summary = snapshot(&target, true)?;
+    drop(target);
+    let changed = changed_tables(&target_summary["tables"], &receipt["tables"]);
+    Ok(RefreshInspection {
+        parent,
+        destination,
+        receipt,
+        source_path,
+        summary,
+        source_digest: source_hash,
+        checked_at,
+        target_summary,
+        changed,
+    })
+}
+
+fn refresh_preview_value(state: &RefreshInspection) -> Value {
+    let previous = state.receipt["sourceDigest"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let target_unchanged = state.changed.is_empty();
+    let source_unchanged = state.source_digest == previous;
+    let (can_refresh, reason) = if !target_unchanged {
+        (false, "插件业务库在上次迁入后已有改动，不能整库更新")
+    } else if source_unchanged {
+        (false, "来源自上次迁入后没有新变化")
+    } else {
+        (true, "")
+    };
+    json!({
+        "sourcePath": state.source_path,
+        "sourceDigest": state.source_digest,
+        "previousSourceDigest": previous,
+        "targetUnchanged": target_unchanged,
+        "changedTables": state.changed,
+        "tables": before_after(&state.target_summary["tables"], &state.summary["tables"]),
+        "canRefresh": can_refresh,
+        "reason": reason,
+        "warnings": [
+            "整库更新会以来源快照替换当前插件业务库；不会发送消息。",
+            "更新前会在 backups 目录保留当前业务库的一致性备份。"
+        ]
+    })
+}
+
+fn create_backup_dir(parent: &Path) -> Result<PathBuf> {
+    let backups = parent.join("backups");
+    fs::create_dir_all(&backups).map_err(|_| "无法创建更新前备份目录；未更新目标库")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&backups, fs::Permissions::from_mode(0o700))
+            .map_err(|_| "无法保护更新前备份目录；未更新目标库")?;
+    }
+    let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let directory = backups.join(format!("before-refresh-{stamp}"));
+    fs::create_dir(&directory).map_err(|_| "无法创建更新前备份目录；未更新目标库")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))
+            .map_err(|_| "无法保护更新前备份目录；未更新目标库")?;
+    }
+    Ok(directory)
+}
+
+/// 使用 SQLite 一致性备份保留当前业务库，并确认备份与当前内容逐表一致。
+fn backup_destination(destination: &Path, expected: &Value, parent: &Path) -> Result<PathBuf> {
+    let current = read_only(destination)?;
+    let current_summary = snapshot(&current, true)?;
+    if &current_summary != expected {
+        return Err("插件业务库在上次预览后已有改动，不能整库更新；尚未更新目标库".into());
+    }
+    let directory = create_backup_dir(parent)?;
+    let backup_path = directory.join("workbench.sqlite");
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options
+        .open(&backup_path)
+        .map_err(|_| "无法创建更新前备份；未更新目标库")?;
+    let mut backup_db =
+        Connection::open_with_flags(&backup_path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+            .map_err(|_| "无法打开更新前备份；未更新目标库")?;
+    backup(&current, &mut backup_db)?;
+    backup_db
+        .execute_batch("PRAGMA journal_mode=DELETE;")
+        .map_err(|_| "无法封存更新前备份；未更新目标库")?;
+    backup_db
+        .close()
+        .map_err(|_| "无法关闭更新前备份；未更新目标库")?;
+    OpenOptions::new()
+        .read(true)
+        .open(&backup_path)
+        .and_then(|f| f.sync_all())
+        .map_err(|_| "无法持久保存更新前备份；未更新目标库")?;
+    let check = read_only(&backup_path)?;
+    if snapshot(&check, true)? != current_summary {
+        return Err("更新前备份与当前业务库不一致；未更新目标库".into());
+    }
+    drop(check);
+    drop(current);
+    Ok(backup_path)
+}
+
+fn refresh(command: &str, input: Value, state_path: &Path) -> Result<Value> {
+    let previewing = command == "preview-workbench-refresh";
+    let allowed: Vec<&str> = if previewing {
+        vec![]
+    } else {
+        vec!["expectedSourceDigest", "confirmed"]
+    };
+    let object = input.as_object().ok_or("整库更新输入必须为对象")?;
+    if object.keys().any(|key| !allowed.contains(&key.as_str())) {
+        return Err("整库更新输入含不支持的字段".into());
+    }
+    let state = inspect_refresh(state_path)?;
+    if previewing {
+        return Ok(refresh_preview_value(&state));
+    }
+    if input["confirmed"] != true {
+        return Err("整库更新必须明确确认 confirmed=true".into());
+    }
+    let expected = required(&input, "expectedSourceDigest")?;
+    if !valid_digest(expected) {
+        return Err("来源摘要格式不合法，请重新预览".into());
+    }
+    if state.source_digest != expected {
+        return Err("来源自预览后已变化，请重新预览；尚未更新目标库".into());
+    }
+    if !state.changed.is_empty() {
+        return Err("插件业务库在上次迁入后已有改动，不能整库更新；尚未更新目标库".into());
+    }
+    let previous = state.receipt["sourceDigest"]
+        .as_str()
+        .ok_or("目标迁入回执缺少来源摘要；不能整库更新")?;
+    if state.source_digest == previous {
+        return Err("来源自上次迁入后没有新变化，无需整库更新".into());
+    }
+    let database_id = state.receipt["databaseId"]
+        .as_str()
+        .ok_or("目标迁入回执缺少业务身份；不能整库更新")?
+        .to_string();
+    let previous_receipt_id = state.receipt["receiptId"]
+        .as_str()
+        .ok_or("目标迁入回执缺少回执编号；不能整库更新")?
+        .to_string();
+
+    // 与首次迁入相同：只在隔离临时文件中构建完整新库，最后才原子替换。
+    fs::create_dir_all(&state.parent).map_err(|_| "无法创建插件业务目录")?;
+    destination_parent(&state.parent)?;
+    let directory = fs::symlink_metadata(&state.parent).map_err(|_| "无法核对插件业务目录")?;
+    if !directory.is_dir()
+        || directory.file_type().is_symlink()
+        || crate::in_worktree(
+            &state
+                .parent
+                .canonicalize()
+                .map_err(|_| "无法定位插件业务目录")?,
+        )
+    {
+        return Err("插件业务目录不可使用符号链接或任务工作区".into());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&state.parent, fs::Permissions::from_mode(0o700))
+            .map_err(|_| "无法保护插件业务目录")?;
+    }
+    let source = read_only(&state.source_path)?;
+    let temporary = Temporary(
+        state
+            .parent
+            .join(format!(".workbench-refresh-{}.sqlite", Uuid::new_v4())),
+    );
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options
+        .open(&temporary.0)
+        .map_err(|_| "无法创建隔离更新文件")?;
+    let mut target = Connection::open_with_flags(&temporary.0, OpenFlags::SQLITE_OPEN_READ_WRITE)
+        .map_err(|_| "无法打开隔离更新库")?;
+    backup(&source, &mut target)?;
+    if snapshot(&target, false)? != state.summary {
+        return Err("备份与来源的逐表内容不一致；未更新目标库".into());
+    }
+    local_store::init_connection_with_identity(&target, &database_id)
+        .map_err(|_| "无法沿用业务库身份初始化更新库；未更新目标库")?;
+    if snapshot(&target, true)? != state.summary {
+        return Err("初始化后的业务内容不一致；未更新目标库".into());
+    }
+    drop(source);
+
+    let mut receipt_value = state.receipt.clone();
+    if let Some(map) = receipt_value.as_object_mut() {
+        map.remove("receiptDigest");
+    }
+    receipt_value["schemaVersion"] = json!(1);
+    receipt_value["status"] = json!("imported");
+    receipt_value["kind"] = json!("refresh");
+    receipt_value["receiptId"] = json!(Uuid::new_v4().to_string());
+    receipt_value["previousReceiptId"] = json!(previous_receipt_id);
+    receipt_value["sourcePath"] = json!(state.source_path);
+    receipt_value["destinationPath"] = json!(state.destination);
+    receipt_value["sourceDigest"] = json!(state.source_digest);
+    receipt_value["schemaDigest"] = state.summary["schemaDigest"].clone();
+    receipt_value["tables"] = state.summary["tables"].clone();
+    receipt_value["totalRows"] = state.summary["totalRows"].clone();
+    receipt_value["sourceCheckedAt"] = json!(state.checked_at);
+    receipt_value["refreshedAt"] = json!(now());
+    receipt_value["databaseId"] = json!(database_id);
+    receipt_value["replay"] = json!(false);
+    receipt_value["receiptDigest"] = json!(digest(receipt_value.to_string().as_bytes()));
+    target
+        .execute_batch(&format!(
+            "CREATE TABLE {RECEIPTS}(id INTEGER PRIMARY KEY CHECK(id=1),receipt TEXT NOT NULL)"
+        ))
+        .map_err(|_| "无法保存更新回执")?;
+    target
+        .execute(
+            &format!("INSERT INTO {RECEIPTS}(id,receipt) VALUES(1,?)"),
+            [receipt_value.to_string()],
+        )
+        .map_err(|_| "无法保存更新回执")?;
+    // 独立连接在发布前重新观察最新已提交来源，避免只比较旧的 WAL 读事务。
+    let latest = read_only(&state.source_path)?;
+    if source_digest(&state.source_path, &snapshot(&latest, false)?) != expected {
+        return Err("更新期间来源已变化，请重新预览；未更新目标库".into());
+    }
+    drop(latest);
+    target
+        .execute_batch("PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode=DELETE;")
+        .map_err(|_| "无法封存更新库")?;
+    target.close().map_err(|_| "无法关闭完整更新库")?;
+    OpenOptions::new()
+        .read(true)
+        .open(&temporary.0)
+        .and_then(|f| f.sync_all())
+        .map_err(|_| "无法持久保存更新库")?;
+
+    let backup_path = backup_destination(&state.destination, &state.target_summary, &state.parent)?;
+    // 替换前最后一次确认目标与来源都没有变化。
+    let latest_target = read_only(&state.destination)?;
+    if snapshot(&latest_target, true)? != state.target_summary {
+        return Err("插件业务库在上次预览后已有改动，不能整库更新；尚未更新目标库".into());
+    }
+    drop(latest_target);
+    let latest = read_only(&state.source_path)?;
+    if source_digest(&state.source_path, &snapshot(&latest, false)?) != expected {
+        return Err("更新期间来源已变化，请重新预览；尚未更新目标库".into());
+    }
+    drop(latest);
+    ensure_no_pending_wal(&state.destination)?;
+    fs::rename(&temporary.0, &state.destination).map_err(|_| "无法原子替换业务库；原库保持不变")?;
+    let _ = fs::File::open(&state.parent).and_then(|f| f.sync_all());
+    Ok(json!({
+        "receipt": receipt_value,
+        "backupPath": backup_path,
+        "tables": before_after(&state.target_summary["tables"], &state.summary["tables"])
+    }))
+}
+
 pub(crate) fn execute(command: &str, input: Value, state_path: &Path) -> Result<Value> {
+    if ["preview-workbench-refresh", "refresh-workbench"].contains(&command) {
+        return refresh(command, input, state_path);
+    }
     let allowed = match command {
         "preview-workbench-import" => vec!["sourcePath"],
         "import-workbench" => vec!["sourcePath", "expectedSourceDigest", "confirmed"],
@@ -478,11 +903,7 @@ pub(crate) fn execute(command: &str, input: Value, state_path: &Path) -> Result<
             return Err("迁入必须明确确认 confirmed=true".into());
         }
         let value = required(&input, "expectedSourceDigest")?;
-        if value.len() != 64
-            || !value
-                .bytes()
-                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-        {
+        if !valid_digest(value) {
             return Err("来源摘要格式不合法，请重新预览".into());
         }
         value
@@ -620,4 +1041,336 @@ pub(crate) fn execute(command: &str, input: Value, state_path: &Path) -> Result<
         value["replay"] = json!(false);
         value
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SOURCE_SCHEMA: &str = "
+CREATE TABLE creators(id TEXT PRIMARY KEY,handle TEXT UNIQUE,profile TEXT NOT NULL,settings TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE drafts(creator TEXT REFERENCES creators(id),channel TEXT,subject TEXT NOT NULL,body TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(creator,channel));
+CREATE TABLE events(id TEXT PRIMARY KEY,creator TEXT REFERENCES creators(id),channel TEXT,type TEXT,at TEXT,proof TEXT,note TEXT,created TEXT,void_reason TEXT DEFAULT '',request_id TEXT UNIQUE);
+CREATE TABLE audit(id INTEGER PRIMARY KEY,at TEXT,kind TEXT,creator TEXT,previous TEXT,current TEXT);
+CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT);
+CREATE TABLE messages(id TEXT PRIMARY KEY,creator TEXT REFERENCES creators(id),channel TEXT,direction TEXT,at TEXT,sender TEXT,subject TEXT,body TEXT,zh TEXT,kind TEXT,source TEXT UNIQUE,created TEXT);
+CREATE TABLE negotiations(creator TEXT PRIMARY KEY REFERENCES creators(id),status TEXT,our_offer TEXT,their_ask TEXT,next_step TEXT,updated TEXT);";
+
+    struct Fixture {
+        root: PathBuf,
+        source: PathBuf,
+        state: PathBuf,
+        destination: PathBuf,
+    }
+    impl Fixture {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!("gapaw-refresh-test-{}", Uuid::new_v4()));
+            fs::create_dir_all(&root).unwrap();
+            let source = root.join("合成旧工作台.sqlite");
+            let state = root.join("插件持久目录");
+            fs::create_dir_all(&state).unwrap();
+            let destination = state.join("workbench.sqlite");
+            let db = Connection::open(&source).unwrap();
+            db.execute_batch(SOURCE_SCHEMA).unwrap();
+            db.execute(
+                "INSERT INTO creators VALUES('SYNTH1','synthetic_only','{}','{}',0)",
+                [],
+            )
+            .unwrap();
+            db.close().unwrap();
+            Self {
+                root,
+                source,
+                state,
+                destination,
+            }
+        }
+        fn state_path(&self) -> PathBuf {
+            self.state.join("state.sqlite")
+        }
+        fn command(&self, name: &str, input: Value) -> Result<Value> {
+            execute(name, input, &self.state_path())
+        }
+        fn preview_import(&self) -> Value {
+            self.command(
+                "preview-workbench-import",
+                json!({"sourcePath": self.source}),
+            )
+            .unwrap()
+        }
+        fn run_import(&self) -> Value {
+            let preview = self.preview_import();
+            self.command(
+                "import-workbench",
+                json!({
+                    "sourcePath": self.source,
+                    "expectedSourceDigest": preview["sourceDigest"].clone(),
+                    "confirmed": true
+                }),
+            )
+            .unwrap()
+        }
+        fn add_creator(&self, id: &str, handle: &str) {
+            let db = Connection::open(&self.source).unwrap();
+            db.execute(
+                "INSERT INTO creators VALUES(?,?,?,?,0)",
+                rusqlite::params![id, handle, "{}", "{}"],
+            )
+            .unwrap();
+            db.close().unwrap();
+        }
+        fn target_snapshot(&self) -> Value {
+            let db = read_only(&self.destination).unwrap();
+            snapshot(&db, true).unwrap()
+        }
+        fn backup_dirs(&self) -> Vec<String> {
+            let mut names: Vec<String> = fs::read_dir(self.state.join("backups"))
+                .map(|entries| {
+                    entries
+                        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                        .collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            names
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn table<'a>(preview: &'a Value, name: &str) -> &'a Value {
+        preview["tables"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["name"] == name)
+            .unwrap()
+    }
+
+    #[test]
+    fn refresh_preview_and_execute_replace_source_data_and_keep_identity() {
+        let f = Fixture::new();
+        let imported = f.run_import();
+        let database_id = imported["databaseId"].as_str().unwrap().to_string();
+        let receipt_id = imported["receiptId"].as_str().unwrap().to_string();
+        let old_target = f.target_snapshot();
+        assert_eq!(table(&old_target, "creators")["count"], 1);
+        f.add_creator("SYNTH2", "second_only");
+        let source_before = fs::read(&f.source).unwrap();
+
+        let preview = f.command("preview-workbench-refresh", json!({})).unwrap();
+        assert_eq!(preview["canRefresh"], true);
+        assert_eq!(preview["targetUnchanged"], true);
+        assert_eq!(preview["changedTables"], json!([]));
+        assert_eq!(preview["previousSourceDigest"], imported["sourceDigest"]);
+        assert_ne!(preview["sourceDigest"], imported["sourceDigest"]);
+        assert_eq!(table(&preview, "creators")["before"], 1);
+        assert_eq!(table(&preview, "creators")["after"], 2);
+        assert!(preview["warnings"].as_array().unwrap().len() >= 2);
+
+        let result = f
+            .command(
+                "refresh-workbench",
+                json!({
+                    "expectedSourceDigest": preview["sourceDigest"].clone(),
+                    "confirmed": true
+                }),
+            )
+            .unwrap();
+        assert_eq!(result["receipt"]["kind"], "refresh");
+        assert_eq!(result["receipt"]["status"], "imported");
+        assert_eq!(result["receipt"]["databaseId"], database_id);
+        assert_eq!(result["receipt"]["previousReceiptId"], receipt_id);
+        assert_ne!(result["receipt"]["receiptId"], receipt_id);
+        assert!(result["receipt"]["refreshedAt"].as_str().is_some());
+        assert_eq!(table(&result, "creators")["before"], 1);
+        assert_eq!(table(&result, "creators")["after"], 2);
+        assert_eq!(fs::read(&f.source).unwrap(), source_before);
+
+        let db = Connection::open(&f.destination).unwrap();
+        let count: i64 = db
+            .query_row("SELECT count(*) FROM creators", [], |r| r.get(0))
+            .unwrap();
+        let identity: String = db
+            .query_row("SELECT value FROM meta WHERE key=?", [IDENTITY_KEY], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        db.close().unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(identity, database_id);
+        let stored = receipt(&f.destination).unwrap().unwrap();
+        assert_eq!(stored["kind"], "refresh");
+        assert_eq!(stored["databaseId"], database_id);
+
+        let backup = Path::new(result["backupPath"].as_str().unwrap());
+        assert!(backup.is_file());
+        assert_eq!(backup.file_name().unwrap(), "workbench.sqlite");
+        assert!(backup
+            .parent()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("before-refresh-"));
+        let backup_db = read_only(backup).unwrap();
+        assert_eq!(snapshot(&backup_db, true).unwrap(), old_target);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(backup).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            assert_eq!(
+                fs::metadata(backup.parent().unwrap())
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+        }
+        assert_eq!(f.backup_dirs().len(), 1);
+        assert_eq!(
+            fs::read_dir(&f.state)
+                .unwrap()
+                .filter(|entry| entry
+                    .as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".workbench-refresh-"))
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn refresh_preview_rejects_locally_modified_workbench() {
+        let f = Fixture::new();
+        f.run_import();
+        let db = Connection::open(&f.destination).unwrap();
+        db.execute("UPDATE creators SET revision=5", []).unwrap();
+        db.close().unwrap();
+        f.add_creator("SYNTH2", "second_only");
+        let before = fs::read(&f.destination).unwrap();
+
+        let preview = f.command("preview-workbench-refresh", json!({})).unwrap();
+        assert_eq!(preview["canRefresh"], false);
+        assert_eq!(preview["targetUnchanged"], false);
+        assert_eq!(
+            preview["reason"],
+            "插件业务库在上次迁入后已有改动，不能整库更新"
+        );
+        assert!(preview["changedTables"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|name| name == "creators"));
+
+        let error = f
+            .command(
+                "refresh-workbench",
+                json!({
+                    "expectedSourceDigest": preview["sourceDigest"].clone(),
+                    "confirmed": true
+                }),
+            )
+            .unwrap_err();
+        assert!(error.contains("已有改动"), "{error}");
+        assert_eq!(fs::read(&f.destination).unwrap(), before);
+        assert!(f.backup_dirs().is_empty());
+    }
+
+    #[test]
+    fn refresh_requires_confirmation_and_matching_source_digest() {
+        let f = Fixture::new();
+        f.run_import();
+        f.add_creator("SYNTH2", "second_only");
+        let preview = f.command("preview-workbench-refresh", json!({})).unwrap();
+        let digest = preview["sourceDigest"].clone();
+
+        assert!(f
+            .command("refresh-workbench", json!({"expectedSourceDigest": digest}))
+            .unwrap_err()
+            .contains("confirmed=true"));
+        assert!(f
+            .command(
+                "refresh-workbench",
+                json!({"expectedSourceDigest": digest,"confirmed": false})
+            )
+            .unwrap_err()
+            .contains("confirmed=true"));
+        assert!(f
+            .command(
+                "refresh-workbench",
+                json!({"expectedSourceDigest": digest,"confirmed": true,"destinationPath": "/tmp/x"})
+            )
+            .unwrap_err()
+            .contains("不支持的字段"));
+        assert!(f
+            .command(
+                "refresh-workbench",
+                json!({"expectedSourceDigest": "not-a-digest","confirmed": true})
+            )
+            .unwrap_err()
+            .contains("格式不合法"));
+        let wrong = "a".repeat(64);
+        assert!(f
+            .command(
+                "refresh-workbench",
+                json!({"expectedSourceDigest": wrong,"confirmed": true})
+            )
+            .unwrap_err()
+            .contains("已变化"));
+        assert!(f
+            .command("preview-workbench-refresh", json!({"sourcePath": f.source}))
+            .unwrap_err()
+            .contains("不支持的字段"));
+
+        assert!(receipt(&f.destination)
+            .unwrap()
+            .unwrap()
+            .get("kind")
+            .is_none());
+    }
+
+    #[test]
+    fn refresh_without_new_source_change_is_rejected_without_writes() {
+        let f = Fixture::new();
+        f.run_import();
+        f.add_creator("SYNTH2", "second_only");
+        let preview = f.command("preview-workbench-refresh", json!({})).unwrap();
+        let digest = preview["sourceDigest"].clone();
+        let first = f
+            .command(
+                "refresh-workbench",
+                json!({"expectedSourceDigest": digest.clone(),"confirmed": true}),
+            )
+            .unwrap();
+        let before = fs::read(&f.destination).unwrap();
+        let backups = f.backup_dirs();
+
+        let error = f
+            .command(
+                "refresh-workbench",
+                json!({"expectedSourceDigest": digest,"confirmed": true}),
+            )
+            .unwrap_err();
+        assert!(error.contains("没有新变化"), "{error}");
+        assert_eq!(fs::read(&f.destination).unwrap(), before);
+        assert_eq!(f.backup_dirs(), backups);
+        assert_eq!(
+            receipt(&f.destination).unwrap().unwrap()["receiptId"],
+            first["receipt"]["receiptId"]
+        );
+        let repeated = f.command("preview-workbench-refresh", json!({})).unwrap();
+        assert_eq!(repeated["canRefresh"], false);
+        assert_eq!(repeated["reason"], "来源自上次迁入后没有新变化");
+        assert_eq!(repeated["changedTables"], json!([]));
+    }
 }

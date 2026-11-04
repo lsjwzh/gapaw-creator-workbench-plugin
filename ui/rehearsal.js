@@ -1,7 +1,7 @@
 (function (root, factory) {
   'use strict';
   const node = typeof module === 'object' && module.exports;
-  const api = factory(node ? require('./app.js') : root.GapawWorkbenchApp);
+  const api = factory(node ? require('./client.js') : root.GapawClient);
   if (node) module.exports = api;
   else root.addEventListener('DOMContentLoaded', () => { if (root.document.getElementById('reh-items')) api.mount(root.document, root); });
 }(typeof window === 'undefined' ? globalThis : window, function (App) {

@@ -1,12 +1,12 @@
 # 达人工作台插件独立项目
 
-0.12.0 开发版加入对话选人工作区：配置胶囊、连续会话、名单版本、比较和正式档案采用。通过 MultiCC 公开命令读取浏览器实例，按命令与返回字段判断能力。业务规则、数据库读写与导出由 Rust 处理，首页永久显示十个业务模块，不需要运行原 Python 工作台服务。
+0.13.4 开发版：新增发件箱（`outbox-*`）：在达人抽屉里写信、发送前复查硬规则、建飞书草稿后发送并查投递状态，中断或超时只核对不重发；测试模式只发往测试收件邮箱。此前 0.13.3：首页是像素办公室，旧版十模块工作台、草稿任务、选人与候选区页面已下线，业务库与后端命令保留为数据层。新增从原台账整库更新、外部批次建档（`creator-import*`）与飞书邮件增量同步（`mail-sync`）。业务规则、数据库读写与导出由 Rust 处理，不需要运行原 Python 工作台服务。
 
 使用方式、模块边界及迁入注意事项见 [插件说明](PLUGIN_README.md)。真实资料不随源码或安装包分发。
 
 ## 业务与数据
 
-按“选人 → 核验 → 合作准备 → 文案 → 触达 → 往来 → 谈判回复 → 跟进 → 履约 → 复盘”组织首页。模块可以直接切换，未建立数据库或读取失败时也保留入口。
+页面只有三个：首页像素办公室（`ui/index.html` + `ui/office.js`）、连接与设置（`ui/setup.html`）、影子演练（`ui/rehearsal.html`）；共用请求与 MultiCC 任务派发在 `ui/client.js`。
 
 插件持久目录默认是 `~/.multicc/plugins-data/gapaw-creator-workbench/`：
 
@@ -24,7 +24,7 @@
 
 - `src/selection.rs`：自动依赖检查、同任务对话、内置任务约定及不可变名单版本。
 - `src/selection_data.rs`：资料契约校验、身份匹配、采用事务与幂等回执。
-- `ui/selection-workspace.js`：宿主配置目录、会话与版本界面的薄适配。
+- `src/office.rs`：首页只读汇总 `office-status` 与达人抽屉 `office-creator`。`src/mail_sync.rs`：飞书邮件增量同步。`src/intake.rs`：外部批次建档。
 - `src/local_store.rs`：七表兼容的读模型、设置、文案、事件、消息、谈判与七日回复统计。
 - `src/local_migration.rs`：只读盘点、一致备份、类型敏感的逐表完整摘要与迁入回执。
 - `src/local_backend.rs`：业务库生命周期与本地模式启用。
@@ -46,9 +46,10 @@ cargo test --locked --target-dir=/tmp/gapaw-creator-plugin-target
 cargo clippy --locked --target-dir=/tmp/gapaw-creator-plugin-target -- -D warnings
 cargo build --locked --release --target-dir=/tmp/gapaw-creator-plugin-target
 GAPAW_TEST_BINARY=/tmp/gapaw-creator-plugin-target/release/gapaw-creator-workbench node --test tests/*.test.cjs
-PYTHONDONTWRITEBYTECODE=1 python3 -B tests/selection-workspace-browser.test.py
 PYTHONDONTWRITEBYTECODE=1 python3 -B tests/package.test.py
-GAPAW_TEST_BINARY=/tmp/gapaw-creator-plugin-target/release/gapaw-creator-workbench PYTHONDONTWRITEBYTECODE=1 python3 -B tests/local-workbench-browser.test.py
+GAPAW_TEST_BINARY=/tmp/gapaw-creator-plugin-target/release/gapaw-creator-workbench PYTHONDONTWRITEBYTECODE=1 python3 -B tests/office-browser.test.py
+GAPAW_TEST_BINARY=/tmp/gapaw-creator-plugin-target/release/gapaw-creator-workbench PYTHONDONTWRITEBYTECODE=1 python3 -B tests/setup-browser.test.py
+GAPAW_TEST_BINARY=/tmp/gapaw-creator-plugin-target/release/gapaw-creator-workbench PYTHONDONTWRITEBYTECODE=1 python3 -B tests/rehearsal-browser.test.py
 python3 -B scripts/package_plugin.py build --binary /tmp/gapaw-creator-plugin-target/release/gapaw-creator-workbench
 ```
 
@@ -66,14 +67,26 @@ MultiCC 随包分发的浏览器隔离插件自 1.6.4 起内置公开页面接�
 
 `prototypes/selection-workspace.html` 是新版对话式选人的独立交互评审稿，使用全新演示数据，无外部请求；其中登录检测、对话生成和正式采用均为模拟，不属于已接入能力。
 
-“连接与设置”页（`ui/setup.html`）统一检测业务数据、飞书邮箱登录（本机 `lark-cli`）、发件与测试收件邮箱、运行模式和运行参数；测试邮件只在用户点击时发往测试收件邮箱，测试可用 `GAPAW_LARK_CLI` 指向合成命令行。业务邮件发送、私信、收件同步、物流、付款以及真实平台实时采集尚未接入；人工登记记录已发生事实，不执行这些动作。对话名单可在预览确认后写入正式档案；仅使用来源明确的平台稳定账号编号建立身份，旧档案缺少映射或发生冲突时保留待核验，不按昵称合并。
+“连接与设置”页（`ui/setup.html`）统一检测业务数据、飞书邮箱登录（本机 `lark-cli`）、发件与测试收件邮箱、运行模式和运行参数；测试邮件只在用户点击时发往测试收件邮箱，测试可用 `GAPAW_LARK_CLI` 指向合成命令行。发件箱与收件同步已接入飞书邮箱；私信、物流、付款以及真实平台实时采集尚未接入；人工登记记录已发生事实，不执行这些动作。对话名单可在预览确认后写入正式档案；仅使用来源明确的平台稳定账号编号建立身份，旧档案缺少映射或发生冲突时保留待核验，不按昵称合并。
 
 需求从主项目 `requirements/workbench-plugin-plan-v2.md` 读取，不复制到任务工作区。不得将生产数据库、私人消息、登录态或密钥加入源码、测试夹具或安装包。
 
 ## 对话选人实现范围
 
-正式入口为 `ui/selection.html`，历史报告入口为 `ui/selection-legacy.html`。读取宿主供应商目录组件，插件保留自己的输入、会话和名单布局；不原样加载会清理宿主草稿的 chat-composer，不新增 Node 后端。
+旧版对话选人页面已下线；`selection-*` 命令与数据保留，新版选人将并入首页员工“小选”的工作流。
 
 绑定后在同一浏览器实例内自动检查平台身份，不再填写账号、市场或核验依据。检测结果绑定实例生命周期，缓存最多两分钟，每轮发送前重查。多页时选择本次使用的页面。真实平台检测仍待在指定实例中验收；登录通过不代表所有筛选字段与时窗可用。
 
 名单先按契约保存版本；身份未知可保留候选，不能采用为正式档案。采用只新增档案或更新选人资料快照，保留人工设置与已发生事实，重复同版跳过。工作台档案显示来源、指标时窗及缺失项。所有发布验收中的 AI 回答和平台资料均使用合成接口；不代表真实模型采集或自动登录检测已验收。
+
+首页（`ui/index.html`）是像素办公室：7 位 AI 员工按工作流排布，真实状态来自只读命令 `office-status`（Rust），显示谁因设置缺失受阻、谁在等演练回答、哪些谈判与新来信等你处理；点卡片用 `office-creator` 打开达人抽屉查看往来；“立即同步邮件”调用 `mail-sync`；“模拟一天”只改页面显示，不发送、不改数据。
+
+## 办公室与角色任务（0.14.0）
+
+在「连接与设置 → 办公室与员工任务」选择模型、线路和运营目录，保存后点击「初始化办公室」。可以自动建立专属运营目录；宿主负责将它准备成 Git 工作目录。初始化只创建一个流转器和七个员工角色任务，不启动模型。中途中断后点击继续初始化，会复用原任务编号与角色计划。任务准备后目录与创建计划固定，模型变更可在 MultiCC 原任务中管理。
+
+打开某位达人的往来记录，选择工单类型并填写要求，点击「创建影子工单」，再到首页「办公室任务」点击「唤醒流转器」。工单候选通过插件保存，页面可查看摘要、依据与邮件候选；这一步不采用正式数据、不发送邮件。定时唤醒未开启。工单依据过期或需要终止时可作废，再基于最新业务数据新建工单。
+
+工单协议：`work-create`、`work-next`、`work-dispatched`、`work-context`、`work-submit`、`work-get`、`work-list`、`work-cancel`。流转器和员工都从插件重新读取状态；角色提示词内附有命令和交回格式。跨进程领取、派发回执和交回结果保存在业务库，测试邮箱配置不阻塞影子工单。
+
+本切片通过任务编号校验逻辑归属，但不提供宿主任务之间的权限沙箱；受信任的宿主工具仍有全局能力。任务执行状态需回原任务查看，工单的「处理中」是员工最近读取上下文后的记账状态。超过一轮的积压可在刷新工单后再次手动唤醒。正式采用与影子决策、自动触发工单和按动作放权仍待后续切片。

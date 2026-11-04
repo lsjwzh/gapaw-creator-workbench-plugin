@@ -1,115 +1,164 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Gapaw 达人工作台</title>
-  <link rel="stylesheet" href="./style.css">
-  <script src="./data-workflow.js" defer></script>
-  <script src="./app.js" defer></script>
-  <script src="./drafts.js" defer></script>
-  <script src="./facts.js" defer></script>
-  <script src="./workbench.js" defer></script>
-  <script src="./setup.js" defer></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gapaw 达人工作室</title>
+<style>
+:root{--bg:#262a35;--panel:#323746;--panel2:#3b4153;--ink:#eef1f6;--muted:#a3abbd;--line:#4a5164;--green:#5fbf7f;--amber:#f0b44c;--red:#e5654f;--paper:#fffdf4}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+h1,h2,h3,p{margin:0}
+.px{font-family:ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.5px}
+.top{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;padding:12px 18px;border-bottom:3px solid #1b1e26;background:#2d3240}
+.top h1{font-size:16px;display:flex;align-items:center;gap:8px}
+.top h1 i{display:inline-block;width:12px;height:12px;background:var(--green);box-shadow:3px 3px 0 #1b1e26}
+.funnel{display:flex;gap:4px;flex-wrap:wrap}
+.chip{background:var(--panel2);border:2px solid #1b1e26;padding:1px 8px;font-size:12px;white-space:nowrap}
+.chip b{font-size:14px;margin-left:3px}.chip.arrow{border:0;background:none;padding:0 1px;color:var(--muted)}
+.chip.bump{animation:bump .8s}@keyframes bump{30%{background:var(--green);color:#10291a}}
+.spacer{flex:1}
+.links{display:flex;flex-wrap:wrap;gap:4px}.links a{color:var(--ink);text-decoration:none;font-size:12.5px;padding:2px 8px;border:2px solid #1b1e26;background:var(--panel)}.links a:hover{background:var(--panel2)}
+.ctrl{display:flex;border:2px solid #1b1e26;background:var(--panel)}
+.ctrl button{padding:5px 12px;font-size:12.5px;border-left:2px solid #1b1e26}.ctrl button:first-child{border-left:0}
+.ctrl button[aria-pressed=true]{background:var(--green);color:#10291a;font-weight:700}
+.clock{font-size:18px;font-weight:700;background:#1b1e26;padding:2px 10px;color:#ffe9a8;min-width:70px;text-align:center}
+.note{margin:10px 18px 0;padding:7px 12px;background:#2f3d35;border:2px solid #3f6a4f;color:#cdebd6;font-size:12.5px}
+.note.real{background:#3d3529;border-color:#7a5f33;color:#f3dcb4}
+.grid>section{min-width:0}.grid{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:14px;padding:12px 18px 24px;align-items:start}
+.stage{position:relative;border:3px solid #1b1e26;box-shadow:6px 6px 0 #1b1e26;background:#1b1e26;line-height:0}
+#scene{width:100%;height:auto;image-rendering:pixelated;image-rendering:crisp-edges;display:block;cursor:pointer}
+#overlay{position:absolute;inset:0;pointer-events:none;line-height:1.3}
+#overlay>*{position:absolute}
+.bub{transform:translate(-50%,-100%);background:var(--paper);color:#1f2230;border:2px solid #1f2230;padding:1px 6px;font-size:11.5px;white-space:nowrap;box-shadow:2px 2px 0 #1f223055;max-width:240px;overflow:hidden;text-overflow:ellipsis}
+.bub::after{content:"";position:absolute;left:50%;bottom:-6px;margin-left:-4px;border:4px solid transparent;border-top:4px solid #1f2230}
+.bub.warn{background:#ffe1d9;border-color:#a33a28}.bub.ok{background:#dff5e3}
+.bub[hidden]{display:none}
+.tag{transform:translate(-50%,0);font-size:10.5px;background:#1f2230cc;color:#fff;padding:0 5px;white-space:nowrap;display:flex;align-items:center;gap:4px}
+.tag i{width:7px;height:7px;display:inline-block;background:#9aa}
+.tag i.work{background:var(--green);animation:blink 1s steps(2) infinite}.tag i.wait{background:var(--amber)}.tag i.block{background:var(--red)}.tag i.idle{background:#8a93a6}.tag i.away{background:#555}
+@keyframes blink{50%{opacity:.35}}
+.lbl{transform:translate(-50%,0);font-size:10px;color:#3a2a1a;font-weight:700;background:#fff7e0d0;padding:0 4px;white-space:nowrap}
+.board{left:38.5%;top:4.5%;width:26.5%;height:10.5%;display:flex;flex-direction:column;justify-content:center;align-items:center;color:#2b3a8a;font-size:10.5px;font-weight:700;text-align:center;gap:1px}
+.board small{color:#b0382c;font-size:10px}
+.cal{margin-top:14px;display:grid;grid-template-columns:repeat(14,minmax(0,1fr));gap:4px}
+.cal .d{background:var(--panel);border:2px solid #1b1e26;padding:4px 5px;min-height:62px;font-size:11px;line-height:1.35;overflow:hidden}
+.cal .d b{display:block;font-size:11px;color:var(--muted)}
+.cal .d.today{border-color:var(--amber);background:#40392a}.cal .d.today b{color:var(--amber)}
+.cal .d.plan{background:#2f3a4a}.cal .d.block{background:#4a2f2f}.cal .d.block em{color:#ffb3a6}
+.cal .d em{font-style:normal;display:block;color:#cfd6e4}.cal .d .z{color:#6b7385}
+.side{display:flex;flex-direction:column;gap:12px;min-width:0}
+.card{background:var(--panel);border:3px solid #1b1e26;box-shadow:4px 4px 0 #1b1e26;padding:12px}
+.card h2{font-size:13.5px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.card h2 small{color:var(--muted);font-weight:400}
+.ask{background:#433a26;border:2px solid #8a6a2c;padding:8px 10px;margin-bottom:8px;animation:in .35s}
+.ask .k{font-weight:700}.ask .w{font-size:12px;color:#f3dcb4;margin:2px 0 6px}
+.ask .row{display:flex;gap:6px;flex-wrap:wrap}
+.ask button{background:var(--green);color:#10291a;font-weight:700;padding:3px 10px;border:2px solid #1b1e26}
+.ask button.alt{background:var(--panel2);color:var(--ink)}
+.ask.done{background:#2f3d35;border-color:#3f6a4f}.ask.done .w{color:#cdebd6}
+.ask.info{background:#3b4153;border-color:var(--line)}
+.ask .meta{font-size:11px;color:var(--muted)}
+.feed{list-style:none;margin:0;padding:0;max-height:260px;overflow:auto;font-size:12px}
+.feed li{display:grid;grid-template-columns:40px 1fr;gap:6px;padding:4px 0;border-bottom:1px dashed var(--line);animation:in .35s}
+.feed time{color:#ffe9a8}.feed li.you{color:#f3dcb4}.feed li.ok{color:#bfe8cb}
+.feed .empty{display:block;color:var(--muted)}
+@keyframes in{from{opacity:0;transform:translateY(-5px)}}
+.who .row{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--line);font-size:12px}
+.who .row span:first-child{color:var(--muted)}
+.bar{height:8px;background:#1b1e26;margin-top:3px}.bar i{display:block;height:100%;background:var(--amber)}
+.who .q{font-size:11.5px;color:#cfd6e4;margin-top:6px;padding-left:16px}
+.end{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--paper);color:#1f2230;border:3px solid #1f2230;box-shadow:5px 5px 0 #1f2230;padding:12px 16px;line-height:1.6;font-size:13px;pointer-events:auto;min-width:220px}
+.end h3{font-size:14px;margin-bottom:4px}.end button{margin-top:6px;background:var(--green);border:2px solid #1f2230;padding:2px 10px;font-weight:700;color:#10291a}
+@media(max-width:1000px){.grid{grid-template-columns:1fr}.cal{grid-template-columns:repeat(7,minmax(0,1fr))}}
+@media(max-width:600px){.tag .role{display:none}.cal{display:flex;overflow-x:auto;gap:4px;padding-bottom:4px}.cal .d{flex:0 0 76px;min-height:58px}.bub{max-width:70%}
+  .top{padding:10px 12px}.grid{padding:10px 10px 20px}.note{margin:8px 10px 0}
+  .bub{font-size:9px;padding:0 3px;border-width:1px}.tag{font-size:8px;padding:0 2px}.lbl{font-size:8px}.board{display:none}
+  .chip{font-size:11px;padding:0 5px}.chip b{font-size:12px}.clock{font-size:15px}}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(440px,100vw);background:var(--panel);border-left:3px solid #1b1e26;box-shadow:-6px 0 0 rgba(0,0,0,.25);padding:14px 16px;overflow:auto;z-index:50;font-size:13px}
+.drawer .dhead{display:flex;justify-content:space-between;align-items:center;gap:8px}.drawer h3{margin:0;font-size:16px}
+.drawer .neg{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:10px 0;padding:8px;background:var(--panel2)}.drawer dt{color:var(--muted);white-space:nowrap}.drawer dd{margin:0}
+.drawer .thread{list-style:none;margin:8px 0;padding:0;display:grid;gap:8px}.drawer .thread li{padding:8px;border:2px solid #1b1e26;background:var(--panel2)}.drawer .thread li.in{border-color:#c08a3a}
+.drawer .meta{color:var(--muted);font-size:12px}.drawer .subj{font-weight:600;margin:2px 0}.drawer .body{white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto}.drawer .muted{color:var(--muted)}
+/* 发件箱：写邮件、确认层与发件记录 */
+.outbox-badge{display:inline-block;min-width:18px;margin-left:6px;padding:0 5px;border-radius:9px;background:var(--amber);color:#2a1c00;font-size:11px;font-weight:700;line-height:16px;text-align:center}
+.outbox-badge[hidden]{display:none}
+.compose{margin:12px 0;padding:10px;border:2px solid #1b1e26;background:var(--panel2);min-width:0}
+.compose h4,.outbox-list h4{font-size:13.5px;margin:0 0 6px}
+.compose .field{display:block;margin:6px 0 2px;color:var(--muted);font-size:12px}
+.compose input[type=text],.compose textarea{width:100%;max-width:100%;box-sizing:border-box;background:#1b1e26;color:var(--ink);border:2px solid var(--line);padding:5px 7px;font:inherit;border-radius:0}
+.compose textarea{min-height:90px;resize:vertical;white-space:pre-wrap;word-break:break-word}
+.compose .chk{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12.5px}
+.compose .chk input{width:16px;height:16px;margin:0;accent-color:var(--green)}
+.compose .hint{font-size:11.5px;color:#f3dcb4;margin-top:4px;overflow-wrap:anywhere}
+.compose .row,.ob-actions,.confirm-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.compose button,.ob-actions button,.confirm-box button{border:2px solid #1b1e26;background:var(--panel);padding:3px 10px;font-weight:600}
+.compose button.primary,.ob-actions button.primary,.confirm-box button.primary{background:var(--green);color:#10291a}
+.compose button.alt,.ob-actions button.alt,.confirm-box button.alt{background:var(--panel2);color:var(--ink)}
+.compose button:disabled,.ob-actions button:disabled,.confirm-box button:disabled{opacity:.45;cursor:not-allowed}
+.compose .gate-line,.outbox-list .gate-line{font-size:12px;color:#f3dcb4;margin-top:6px;overflow-wrap:anywhere}
+.compose a,.outbox-list a{color:#ffe9a8}
+.outbox-list{margin:12px 0;min-width:0}
+.ob-msg{min-height:16px;overflow-wrap:anywhere}
+.ob-entry{border:2px solid #1b1e26;background:var(--panel2);padding:8px;margin-top:8px;min-width:0}
+.ob-head{display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;min-width:0}
+.ob-head strong{min-width:0;flex:1 1 180px;overflow-wrap:anywhere;word-break:break-word}
+.ob-state{font-size:11px;padding:0 6px;border:2px solid #1b1e26;white-space:nowrap;background:var(--panel)}
+.ob-state.draft{background:var(--amber);color:#2a1c00}
+.ob-state.sending,.ob-state.unknown{background:#8a6a2c;color:#fff}
+.ob-state.accepted,.ob-state.delivered{background:var(--green);color:#10291a}
+.ob-state.bounced,.ob-state.blocked{background:var(--red);color:#fff}
+.ob-state.cancelled{background:#555;color:#fff}
+.ob-error{color:#ffb3a6;font-size:12px;margin-top:3px;overflow-wrap:anywhere;word-break:break-word}
+.ob-reply{white-space:pre-wrap;word-break:break-word;font-size:12px;background:#1b1e26;padding:5px 7px;margin-top:5px;max-height:120px;overflow:auto}
+.ob-history{max-height:120px;overflow:auto;font-size:11.5px;color:var(--muted);margin:4px 0 0;padding-left:18px;overflow-wrap:anywhere}
+details summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:5px}
+.overlay{position:fixed;inset:0;background:rgba(12,14,20,.66);z-index:80;display:flex;align-items:center;justify-content:center;padding:16px}
+.confirm-box{background:var(--panel);border:3px solid #1b1e26;box-shadow:6px 6px 0 #1b1e26;max-width:520px;width:100%;max-height:calc(100vh - 32px);overflow:auto;padding:14px 16px;min-width:0}
+.confirm-box h3{font-size:15px;margin:0}
+.confirm-mode{border:2px solid #8a6a2c;background:#433a26;padding:6px 8px;font-size:12.5px;margin:8px 0;overflow-wrap:anywhere}
+.confirm-preview{border:2px solid var(--line);background:var(--panel2);padding:8px;margin:8px 0;min-width:0}
+.confirm-preview .subj{font-weight:700;margin-bottom:4px;overflow-wrap:anywhere;word-break:break-word}
+.confirm-preview .body{white-space:pre-wrap;word-break:break-word;max-height:200px;overflow:auto;font-size:12.5px}
+.rules{list-style:none;padding:0;margin:8px 0;display:grid;gap:4px}
+.rules li{display:grid;gap:1px;padding:4px 7px;border-left:4px solid var(--line);background:#1b1e26;font-size:12px;overflow-wrap:anywhere;word-break:break-word}
+.rules li.ok{border-color:var(--green)}.rules li.warn{border-color:var(--amber);background:#40392a}.rules li.bad{border-color:var(--red);background:#4a2f2f}
+.rules .rm{color:var(--muted)}.rules .live-note{color:#f3dcb4;font-style:normal;font-size:11.5px}
+.confirm-actions{justify-content:flex-end}
+.confirm-status{color:#f3dcb4;font-size:12.5px;margin-top:8px;overflow-wrap:anywhere}
+@media(max-width:600px){.compose{padding:8px}.compose textarea{min-height:80px}.confirm-box{padding:12px}.drawer{padding:12px}}
+</style>
 </head>
-<body class="wb">
-  <div class="shell wide">
-    <header class="topbar">
-      <a class="brand" href="./index.html"><span class="mark" aria-hidden="true">达</span>Gapaw 达人工作台</a>
-      <nav aria-label="工作台导航"><a href="#tab=creators">达人</a><a href="#tab=conversations">谈判总览</a><a href="./drafts.html">草稿任务</a><a href="./selection.html">按回本率选人</a><a href="#data" id="wb-data-link">数据管理</a><a href="./setup.html">连接与设置</a><a href="./rehearsal.html">影子演练</a></nav>
-    </header>
-    <main>
-      <section class="card wb-modules" aria-labelledby="wb-module-heading">
-        <div class="section-head"><div><h1 id="wb-module-heading">达人运营工作台</h1><p>从选人到履约，在这里处理业务、查看记录和安排下一步。</p></div><button id="wb-data-toggle" class="secondary" type="button">数据管理</button></div>
-        <nav id="wb-module-nav" class="workflow-nav" aria-label="业务模块">
-          <button type="button" class="workflow-step" data-module="selection" aria-current="step">选人</button>
-          <button type="button" class="workflow-step" data-module="verification">核验</button>
-          <button type="button" class="workflow-step" data-module="cooperation">合作准备</button>
-          <button type="button" class="workflow-step" data-module="drafts">文案</button>
-          <button type="button" class="workflow-step" data-module="outreach">触达</button>
-          <button type="button" class="workflow-step" data-module="messages">往来</button>
-          <button type="button" class="workflow-step" data-module="reply">谈判回复</button>
-          <button type="button" class="workflow-step" data-module="followup">跟进</button>
-          <button type="button" class="workflow-step" data-module="fulfilment">履约</button>
-          <button type="button" class="workflow-step" data-module="review">复盘</button>
-        </nav>
-        <div id="wb-module-overview" class="module-overview"><h2>选人</h2><p>查看已有达人档案，按回本率发起选人任务；没有数据时可先迁入已有记录或建立空白工作台。</p></div>
-      </section>
-      <div id="wb-setup-banner" class="notice wb-setup-banner" role="status" hidden></div>
-      <div id="wb-notice" class="notice" role="status" aria-live="polite">正在读取本地工作台数据；所有业务模块均可进入。</div>
-      <details id="wb-data" class="card wb-data" aria-labelledby="wb-data-title">
-        <summary id="wb-data-title">本地数据管理</summary>
-        <p id="wb-data-state" class="hint">正在读取本地状态…</p>
-        <div id="wb-data-counts" class="data-counts"></div>
-        <div id="wb-migration-summary"></div>
-        <div class="operation-actions"><button id="wb-local-init" class="secondary" type="button">创建空白工作台</button><button id="wb-data-refresh" class="subtle" type="button">重新读取状态</button></div>
-        <p class="hint">已有达人记录请先迁入；空白工作台与已有数据二选一初始化。迁入只读取源文件，不要求启动旧服务，也不会修改源数据库。</p>
-        <label for="wb-import-path">已有工作台数据库文件的绝对路径</label>
-        <div class="inline"><input id="wb-import-path" placeholder="选择要迁入的 outreach.sqlite3 文件路径" maxlength="4096"><button id="wb-import-preview" class="secondary" type="button">预览迁入数据</button></div>
-        <div id="wb-import-result" aria-live="polite"></div>
-      </details>
-
-      <section id="wb-stats" class="wb-stats" aria-label="总览"></section>
-
-      <section class="card wb-todo" aria-labelledby="wb-todo-title">
-        <div class="section-head"><h2 id="wb-todo-title">待办</h2><div class="operation-actions"><button id="wb-refresh" class="subtle" type="button">刷新</button></div></div>
-        <div class="wb-todo-grid">
-          <div><h3>待回复 <span id="todo-reply-count" class="tag warn"></span></h3><div id="todo-reply"></div></div>
-          <div><h3>到期跟进 <span id="todo-due-count" class="tag warn"></span></h3><div id="todo-due"></div></div>
-          <div><h3>待采用候选 <span id="todo-adopt-count" class="tag"></span></h3><div id="todo-adopt"></div></div>
-        </div>
-      </section>
-
-      <div class="wb-tabs" role="tablist">
-        <button id="tab-creators" role="tab" type="button" aria-selected="true">达人</button>
-        <button id="tab-conversations" role="tab" type="button" aria-selected="false">谈判总览</button>
-      </div>
-
-      <section id="panel-creators" class="wb-main" role="tabpanel" aria-labelledby="tab-creators">
-        <div class="card wb-list"><h2 id="wb-list-title">达人档案</h2><p id="wb-list-hint" class="hint">选择达人，进入当前业务模块。</p>
-          <div class="wb-filters">
-            <input id="wb-search" placeholder="搜索编号、账号、选题" aria-label="搜索达人">
-            <select id="wb-priority" aria-label="优先级"><option value="">全部优先级</option></select>
-            <select id="wb-stage" aria-label="合作阶段"><option value="">全部阶段</option></select>
-            <label class="wb-check"><input id="wb-has-messages" type="checkbox">只看有往来</label>
-          </div>
-          <div class="wb-batch"><span id="wb-selected" class="hint">未选择</span><button id="wb-batch-drafts" class="secondary" type="button" disabled>为选中达人生成草稿</button></div>
-          <div id="wb-creators" class="wb-creators"><p class="hint">读取本地达人记录后显示；可先使用上方业务模块和数据管理。</p></div>
-        </div>
-        <article id="wb-detail" class="card wb-detail" aria-live="polite"><p class="empty">从左侧选择一位达人，按模块处理核验、合作、文案、往来、跟进和履约。</p></article>
-      </section>
-
-      <section id="panel-conversations" class="history" role="tabpanel" aria-labelledby="tab-conversations" hidden>
-        <div class="section-head"><div><h2>谈判总览</h2><p class="hint">按最近往来排序。中文摘要在上，原文可展开；虚线为自动回复，不算真人答复。</p></div></div>
-        <div id="wb-conversations"><p class="empty">正在读取…</p></div>
-      </section>
-    </main>
-    <footer>业务数据保存在插件的本地工作台 · 任务在 MultiCC 中执行 · 草稿与摘要经你采用后按版本写回 · 事实由人工登记 · 插件不发送任何消息</footer>
+<body>
+<header class="top">
+  <h1><i></i>Gapaw 达人工作室</h1>
+  <div class="funnel" id="funnel"></div>
+  <nav class="links" aria-label="其他页面"><a href="./setup.html">连接与设置</a><a href="./rehearsal.html">影子演练</a></nav>
+  <span class="spacer"></span>
+  <div class="clock px" id="clock">09:00</div>
+  <div class="ctrl" role="group" aria-label="查看方式">
+    <button id="outbox-btn" title="查看全部发件记录">发件箱<span class="outbox-badge" id="outbox-badge" hidden></span></button><button id="sync" title="从飞书邮箱同步与达人的往来邮件">✉ 立即同步邮件</button><button id="v-real" aria-pressed="true">真实状态</button><button id="v-demo" aria-pressed="false">▶ 模拟一天</button><button id="speed" title="切换速度">2×</button>
   </div>
-
-  <dialog id="task-dialog" class="wb-dialog" aria-labelledby="task-title">
-    <form method="dialog" id="task-form-wb">
-      <h2 id="task-title">交给 MultiCC</h2>
-      <p id="task-target" class="hint"></p>
-      <fieldset id="task-channels" class="draft-channels"><legend>文案渠道</legend>
-        <label><input type="checkbox" name="wb-channel" value="email" checked>邮件</label>
-        <label><input type="checkbox" name="wb-channel" value="dm" checked>普通私信</label>
-        <label><input type="checkbox" name="wb-channel" value="comment">评论区</label>
-        <label><input type="checkbox" name="wb-channel" value="affiliate">达人联盟</label>
-        <label><input type="checkbox" name="wb-channel" value="followup">跟进</label>
-      </fieldset>
-      <div id="task-slot-wrap" hidden><label for="task-slot">回复草稿写入位置</label>
-        <select id="task-slot"><option value="followup">跟进（推荐，不覆盖首轮邀约文案）</option><option value="email">邮件</option><option value="dm">普通私信</option></select>
-      </div>
-      <label for="task-prompt">要求</label>
-      <textarea id="task-prompt" rows="6" maxlength="8000" class="draft-prompt"></textarea>
-      <div class="runtime-grid">
-        <div><label for="task-cli">执行工具</label><select id="task-cli"><option value="">请选择</option><option value="codex-exp">Codex</option><option value="claude">Claude Code</option></select></div>
-        <div><label for="task-model">模型 <span class="hint">可选</span></label><input id="task-model" maxlength="160" placeholder="留空使用已配置模型"></div>
-      </div>
-      <p class="hint">会真实创建 MultiCC 任务。结果交回后在本页对应达人处比较并采用；不发送任何消息。</p>
-      <div class="wb-dialog-actions"><button id="task-cancel" class="secondary" value="cancel" type="submit">取消</button><button id="task-send" class="primary" type="button" disabled>发送到 MultiCC</button></div>
-    </form>
-  </dialog>
+</header>
+<p class="note" id="note">正在读取工作台数据…</p>
+<main class="grid">
+  <section>
+    <div class="stage" id="stage">
+      <canvas id="scene" width="384" height="216" aria-label="像素办公室：AI 员工的工作情况"></canvas>
+      <div id="overlay"></div>
+    </div>
+    <div class="cal" id="cal" aria-label="工作安排日历"></div>
+  </section>
+  <aside class="side">
+    <section class="card"><h2>办公室任务</h2><div id="team-summary"></div></section>
+    <section class="card"><h2>老板桌 · 等你处理 <small id="ask-n"></small></h2><div id="asks"></div></section>
+    <section class="card"><h2>工作动态 <small id="feed-n"></small></h2><ol class="feed" id="feed"></ol></section>
+    <section class="card who" id="who"><h2>员工档案 <small>点办公室里的小人</small></h2><div id="who-body"></div></section>
+  </aside>
+</main>
+<script src="./client.js"></script>
+<script src="./team.js"></script>
+<script src="./office.js"></script>
 </body>
 </html>

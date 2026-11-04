@@ -13,11 +13,15 @@ mod console;
 mod drafts;
 mod exports;
 mod facts;
+mod intake;
 mod local_backend;
 mod local_export;
 mod local_migration;
 mod local_store;
+mod mail_sync;
 mod observations;
+mod office;
+mod outbox;
 mod platform;
 mod platform_check;
 mod rehearsal;
@@ -27,6 +31,7 @@ mod selection_data;
 mod setup;
 mod workbench;
 mod workbench_store;
+mod workforce;
 
 const ID: &str = "gapaw-creator-workbench";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -365,11 +370,34 @@ fn execute(
     {
         return rehearsal::execute(command, input, path);
     }
+    if command == "mail-sync" {
+        return mail_sync::execute(command, input, path);
+    }
+    if ["creator-import-preview", "creator-import"].contains(&command) {
+        return intake::execute(command, input, path);
+    }
+    if command.starts_with("outbox-") {
+        return outbox::execute(command, input, path);
+    }
+    if command.starts_with("team-") || command.starts_with("work-") {
+        return workforce::execute(command, input, path);
+    }
+    if ["office-status", "office-creator"].contains(&command) {
+        return office::execute(command, input, path);
+    }
     if ["setup-status", "setup-save", "mail-status", "mail-test"].contains(&command) {
         return setup::execute(command, input, path);
     }
     if command.starts_with("selection-") {
         return selection::execute(command, input, path, host);
+    }
+    if ["preview-workbench-refresh", "refresh-workbench"].contains(&command) {
+        let result = local_migration::execute(command, input, path)?;
+        if command == "refresh-workbench" {
+            // 新库来自原台账快照，需重建启用时的辅助表并保持本地模式。
+            local_backend::activate(path)?;
+        }
+        return Ok(result);
     }
     if ["preview-workbench-import", "import-workbench"].contains(&command) {
         let result = local_migration::execute(command, input, path)?;
@@ -473,7 +501,7 @@ fn execute(
             return Ok(json!({"operations":ops}));
         }
         return Ok(
-            json!({"plugin":{"id":ID,"version":VERSION},"workspace":effective_workspace(db.as_ref(),host,false)?,"browserBinding":browser::binding(db.as_ref())?,"template":{"version":METHOD_VERSION,"text":TEMPLATE},"operations":ops,"capabilities":{"taskDispatch":true,"platformRead":false,"browserBridge":false,"browserReadBridge":true,"reportCollection":true,"resultValidation":true,"platformContract":true,"sourceObservations":true,"workbenchCandidateClient":true,"resultWriteback":false,"draftWriteback":true,"manualFacts":true,"workbenchExport":true,"outboundSend":false,"inboxSync":false}}),
+            json!({"plugin":{"id":ID,"version":VERSION},"workspace":effective_workspace(db.as_ref(),host,false)?,"browserBinding":browser::binding(db.as_ref())?,"template":{"version":METHOD_VERSION,"text":TEMPLATE},"operations":ops,"capabilities":{"taskDispatch":true,"platformRead":false,"browserBridge":false,"browserReadBridge":true,"reportCollection":true,"resultValidation":true,"platformContract":true,"sourceObservations":true,"workbenchCandidateClient":true,"resultWriteback":false,"draftWriteback":true,"manualFacts":true,"workbenchExport":true,"outboundSend":true,"inboxSync":true}}),
         );
     }
     if ![

@@ -1,11 +1,10 @@
 (function (root, factory) {
   'use strict';
   const node = typeof module === 'object' && module.exports;
-  const api = factory(node ? require('./app.js') : root.GapawWorkbenchApp);
+  const api = factory(node ? require('./client.js') : root.GapawClient);
   if (node) module.exports = api;
   else root.addEventListener('DOMContentLoaded', () => {
     if (root.document.getElementById('setup-list')) api.mount(root.document, root);
-    if (root.document.getElementById('wb-setup-banner')) api.banner(root.document, root);
   });
 }(typeof window === 'undefined' ? globalThis : window, function (App) {
   'use strict';
@@ -30,7 +29,7 @@
   function mount(document, window) {
     const client = App.createClient(window.fetch.bind(window));
     const $ = id => document.getElementById(id);
-    let data = null, busy = false;
+    let data = null, local = null, refresh = null, importPreview = null, busy = false;
     const el = (tag, text, cls) => { const n = document.createElement(tag); if (text !== undefined && text !== null) n.textContent = String(text); if (cls) n.className = cls; return n; };
     const button = (text, cls, fn, disabled = false) => { const b = el('button', text, cls); b.type = 'button'; b.disabled = busy || disabled; b.addEventListener('click', fn); return b; };
     const field = (label, input, hint) => { const w = el('div', undefined, 'setup-field'); const l = el('label', label); l.htmlFor = input.id; w.append(l, input); if (hint) w.append(el('p', hint, 'hint')); return w; };
@@ -48,7 +47,7 @@
       finally { busy = false; await reload(false); }
     }
     async function reload(showSummary = true) {
-      try { data = await client.run('setup-status'); render(showSummary); }
+      try { [data, local] = await Promise.all([client.run('setup-status'), client.run('local-workbench-status').catch(() => null)]); render(showSummary); }
       catch (error) { notice('读取设置失败：' + error.message, true); }
     }
     async function save(values, extra = {}) {
@@ -79,7 +78,48 @@
     }
     const actions = (...nodes) => { const d = el('div', undefined, 'operation-actions'); d.append(...nodes.filter(Boolean)); return d; };
 
-    function dataCard() { return card(item('data'), actions(linkTo('打开数据管理', './index.html#data'))); }
+    const TABLE_LABEL = { creators: '达人', drafts: '文案', events: '事件', messages: '往来消息', negotiations: '谈判', audit: '修改记录', meta: '元数据' };
+    function tableList(tables) {
+      const ul = el('ul', undefined, 'setup-tables');
+      for (const t of tables.filter(t => TABLE_LABEL[t.name] && t.name !== 'meta')) {
+        const diff = (t.after ?? t.count) - (t.before ?? 0);
+        ul.append(el('li', TABLE_LABEL[t.name] + '：' + (t.before === undefined ? t.count : t.before + ' → ' + t.after + (diff ? '（' + (diff > 0 ? '+' : '') + diff + '）' : '（不变）'))));
+      }
+      return ul;
+    }
+    function dataCard() {
+      const it = item('data'), parts = [];
+      if (local?.initialized) {
+        const c = local.counts || {};
+        parts.push(el('p', '当前：达人 ' + (c.creators ?? 0) + ' 位、往来消息 ' + (c.messages ?? 0) + ' 条、事件 ' + (c.events ?? 0) + ' 条、谈判 ' + (c.negotiations ?? 0) + ' 条。', 'hint'));
+        if (!local.active) parts.push(actions(button('启用本地工作台', 'secondary', () => act(async () => { await client.run('local-workbench-init', { confirmed: true }); notice('本地工作台已启用。'); }))));
+        if (local.migration) {
+          parts.push(el('p', '数据来源：' + (local.migration.sourcePath || '') + '；上次' + (local.migration.kind === 'refresh' ? '更新' : '迁入') + '于 ' + formatTime(local.migration.refreshedAt || local.migration.importedAt) + '。', 'hint'));
+          if (refresh) {
+            parts.push(el('p', refresh.canRefresh ? '原台账有新数据，确认后整库更新（更新前自动备份当前库）：' : '不能更新：' + (refresh.reason || ''), refresh.canRefresh ? 'setup-summary-line' : 'hint'));
+            if (refresh.tables) parts.push(tableList(refresh.tables));
+          }
+          parts.push(actions(
+            button('检查原台账新数据', 'secondary', () => act(async () => { refresh = await client.run('preview-workbench-refresh'); notice(refresh.canRefresh ? '原台账有新数据，请核对后确认更新。' : refresh.reason || '没有可更新的数据。'); })),
+            refresh?.canRefresh ? button('确认更新', 'primary', () => {
+              if (!window.confirm('用原台账的最新数据整库更新插件业务库？当前库会先备份。')) return;
+              act(async () => { const r = await client.run('refresh-workbench', { expectedSourceDigest: refresh.sourceDigest, confirmed: true }); refresh = null; notice('已更新；更新前的库已备份到 ' + r.backupPath + '。'); });
+            }) : null));
+        }
+      } else {
+        parts.push(el('p', '尚未建立业务库。可以新建空白工作台，或从已有台账数据库迁入（只读来源，不修改原库）。', 'hint'));
+        const path = input('setup-import-path', importPreview?.sourcePath || '', { placeholder: '已有台账数据库 outreach.sqlite3 的绝对路径', maxlength: '4096' });
+        parts.push(field('已有台账数据库', path));
+        if (importPreview) parts.push(tableList(importPreview.tables || []));
+        parts.push(actions(
+          button('预览迁入', 'secondary', () => act(async () => { importPreview = await client.run('preview-workbench-import', { sourcePath: $('setup-import-path').value.trim() }); notice('请核对各表数量后确认迁入。'); })),
+          importPreview?.canImport ? button('确认迁入', 'primary', () => act(async () => { await client.run('import-workbench', { sourcePath: importPreview.sourcePath, expectedSourceDigest: importPreview.sourceDigest, confirmed: true }); importPreview = null; notice('已迁入。'); })) : null,
+          button('新建空白工作台', 'subtle', () => { if (window.confirm('新建空白工作台后，就不能再从已有台账迁入。确认？')) act(async () => { await client.run('local-workbench-init', { confirmed: true }); notice('已建立空白工作台。'); }); })));
+      }
+      const sync = data.mailSync;
+      if (sync?.lastRunAt) parts.push(el('p', '上次邮件同步：' + formatTime(sync.lastRunAt) + (sync.lastResult ? '，新增 ' + sync.lastResult.imported + ' 封，未匹配达人 ' + sync.lastResult.unmatched + ' 封' : '') + '。', 'hint'));
+      return card(it, ...parts);
+    }
     function loginCard() {
       const it = item('mailLogin'), c = data.mailCheck;
       const parts = [];
@@ -144,7 +184,7 @@
           act(() => save({ mode: 'live' }, { confirmLive: true }));
         }, !canLive)), live || canLive ? null : el('p', '完成一次收发测试后才能切换到正式模式。', 'hint'));
     }
-    function browserCard() { return card(item('browser'), actions(linkTo('前往选人页绑定实例并检测登录', './selection.html'))); }
+    function browserCard() { return card(item('browser'), el('p', '旧版选人页已下线；平台登录检测会随新版选人重新接入，目前不影响邮件功能。', 'hint')); }
     function numberField(id, label, value, min, max, hint) { return field(label, input(id, value, { type: 'number', min: String(min), max: String(max), step: '1' }), hint); }
     const num = id => Number($(id).value);
     function limitsCard() {
@@ -166,7 +206,7 @@
     function syncCard() {
       const s = data.values.sync;
       const box = input('setup-sync-enabled', '', { type: 'checkbox' }); box.checked = s.enabled; box.className = 'setup-check';
-      const wrap = el('label', undefined, 'setup-toggle'); wrap.append(box, document.createTextNode(' 开启定时同步收件'));
+      const wrap = el('label', undefined, 'setup-toggle'); wrap.append(box, document.createTextNode(' 保存定时同步意向（自动调度尚未接入）'));
       return card(item('sync'), wrap, numberField('setup-sync-interval', '同步间隔（分钟）', s.intervalMinutes, 15, 1440),
         actions(button('保存', 'secondary', () => act(() => save({ sync: { enabled: box.checked, intervalMinutes: num('setup-sync-interval') } })))));
     }
@@ -193,17 +233,5 @@
     return { reload };
   }
 
-  // 首页顶部提示：必需设置未完成时显示，完成后隐藏。
-  async function banner(document, window) {
-    const node = document.getElementById('wb-setup-banner');
-    try {
-      const s = await App.createClient(window.fetch.bind(window)).run('setup-status', { brief: true });
-      if (!s.pending) { node.hidden = true; return; }
-      const a = document.createElement('a'); a.href = './setup.html'; a.textContent = '去设置';
-      node.replaceChildren(document.createTextNode('还有 ' + s.pending + ' 项连接与设置未完成（' + s.items.filter(i => i.required && i.state !== 'ok').map(i => i.title).join('、') + '），相关功能暂不可用。'), a);
-      node.hidden = false;
-    } catch (_) { node.hidden = true; }
-  }
-
-  return { mount, banner, stale, formatTime };
+  return { mount, stale, formatTime };
 }));
