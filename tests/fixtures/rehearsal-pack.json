@@ -1,0 +1,30 @@
+{
+  "schema": "gapaw-rehearsal-pack-v1",
+  "id": "fixture-pack",
+  "title": "合成演练包",
+  "generatedAt": "2026-11-04T00:00:00Z",
+  "generatedBy": "测试数据",
+  "sources": [{"id": "S1", "label": "合成业务库", "ref": "workbench.sqlite"}],
+  "steps": [{"id": "offer", "title": "合作条件"}, {"id": "classify", "title": "来信分类"}, {"id": "negotiate", "title": "议价"}],
+  "questions": [
+    {"id": "offer.fee", "step": "offer", "kind": "hard", "question": "首封每条固定费给多少？", "why": "首封必须写金额", "feeds": ["发送首封邀约"],
+     "answer": {"type": "money", "unit": "美元", "per": "每条", "min": 0, "max": 1000},
+     "prefill": {"value": 25, "text": "上一轮两条合计 $50", "confidence": "medium"}, "conflict": "后来普遍升到 $100/条",
+     "evidence": [{"source": "S1", "text": "fee=50 覆盖 100 位"}]},
+    {"id": "classify.auto", "step": "classify", "kind": "preference", "question": "秒回的报价单算不算回复？", "why": "影响跟进", "feeds": ["来信分类"],
+     "answer": {"type": "choice", "options": ["不算，按自动回复处理", "算有效回复"]},
+     "prefill": {"value": "不算，按自动回复处理", "text": "两次都判定为自动回复", "confidence": "high"},
+     "evidence": [{"source": "S1", "text": "18 秒后返回"}]},
+    {"id": "negotiate.tone", "step": "negotiate", "kind": "preference", "question": "回绝高报价时怎么说？", "why": "回复语气", "feeds": ["回复（涉及报价或条件变化）"],
+     "answer": {"type": "text"}, "prefill": {"value": "坦白小品牌预算，提出低价试一条", "text": "多次如此", "confidence": "high"},
+     "evidence": [{"source": "S1", "text": "我们是小品牌"}]}
+  ],
+  "cases": [
+    {"id": "case.auto", "step": "classify", "title": "18 秒后返回的报价单", "messageId": "m-in-1",
+     "suggestion": {"classification": "自动回复", "action": "自动回复处理", "conditionChange": false, "points": ["不算有效回复", "跟进日不变"]},
+     "rules": ["classify.auto"]},
+    {"id": "case.missing", "step": "negotiate", "title": "另一份工作台的来信", "messageId": "m-none",
+     "suggestion": {"classification": "还价", "action": "回复（涉及报价或条件变化）", "conditionChange": true, "points": ["只出草稿"]},
+     "rules": ["negotiate.tone", "offer.fee"]}
+  ]
+}

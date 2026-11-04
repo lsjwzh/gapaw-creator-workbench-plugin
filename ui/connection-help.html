@@ -10,12 +10,18 @@
   <div class="shell">
     <header class="topbar">
       <a class="brand" href="./index.html">达人工作台</a>
-      <nav><a href="./index.html">返回工作台</a><a href="./selection.html">返回选人任务</a><a href="./candidates.html">查看待核验候选</a></nav>
+      <nav><a href="./index.html">返回工作台</a><a href="./selection.html">返回选人任务</a><a href="./candidates.html">查看待核验候选</a><a href="./setup.html">连接与设置</a></nav>
     </header>
     <main>
       <section class="intro">
         <h1>工作台数据与候选区说明</h1>
         <p>业务记录和待核验候选保存在插件的本地工作台。没有数据时也可进入全部业务模块，先迁入已有记录或建立空白工作台。</p>
+      </section>
+      <section class="operation">
+        <h2>连接与设置</h2>
+        <p>插件运行所需的业务数据、飞书邮箱登录、发件邮箱、测试收件邮箱、运行模式与各项参数，统一在<a href="./setup.html">连接与设置</a>页设置和检测。某项未完成时只影响依赖它的功能；首页顶部会提示未完成的项目。</p>
+        <p>飞书邮箱登录在终端运行 <code>lark-cli auth login</code>，再到飞书页面授权完成；插件只读取登录状态、权限和可访问的邮箱，不保存密码或令牌。发件邮箱只能从可访问的邮箱中选择。</p>
+        <p>新安装默认测试模式，外发邮件只会发往测试收件邮箱。点击“发送测试信”后，到测试邮箱回复，再点“检查回信”；测试结果未知时插件不会重发，会先核对已发送邮件。完成一次收发测试并单独确认后，才能切换到正式模式。</p>
       </section>
       <section class="operation">
         <h2>建立本地工作台</h2>

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>影子演练 · Gapaw 达人工作台</title>
+  <link rel="stylesheet" href="./style.css">
+  <script src="./data-workflow.js" defer></script>
+  <script src="./app.js" defer></script>
+  <script src="./rehearsal.js" defer></script>
+</head>
+<body class="wb">
+  <div class="shell wide">
+    <header class="topbar">
+      <a class="brand" href="./index.html"><span class="mark" aria-hidden="true">达</span>Gapaw 达人工作台</a>
+      <nav aria-label="工作台导航"><a href="./index.html">返回工作台</a><a href="./setup.html">连接与设置</a></nav>
+    </header>
+    <main>
+      <section class="intro">
+        <p class="eyebrow">模拟演练 · 不会发送任何消息，也不会修改达人档案</p>
+        <h1>影子演练：用你上一轮的真实记录，记住你的做法</h1>
+        <p>AI 从你过去的达人、报价、来信和回复里提炼出主流程上需要的信息，并按你当时的做法预填。逐条看：同意、改成你现在的做法、或标为不适用。真实来信案例里，比较 AI 的建议和你当时的回复，选你认可的那一种。结果保存为“已记住的倾向”，以后自动运营按它办事；客观数值（金额、比例、上限）只用你明确确认过的。</p>
+      </section>
+      <div id="reh-notice" class="notice" role="status" aria-live="polite">正在读取演练…</div>
+      <div id="reh-summary" class="reh-summary" aria-label="演练进度"></div>
+      <div class="reh-layout">
+        <nav id="reh-steps" class="reh-steps" aria-label="流程环节"></nav>
+        <section id="reh-items" class="reh-items" aria-live="polite"></section>
+        <aside class="card reh-profile" aria-labelledby="reh-profile-title">
+          <h2 id="reh-profile-title">已记住的倾向</h2>
+          <p class="hint">只列出你同意或修改过的项；“暂不确定”和“不适用”不会被使用。</p>
+          <ol id="reh-profile"></ol>
+          <h3>和 AI 建议不同的案例</h3>
+          <ul id="reh-diff" class="hint"></ul>
+        </aside>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

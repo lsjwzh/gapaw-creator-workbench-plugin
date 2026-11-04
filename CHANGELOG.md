@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.13.1
+
+- Add a Shadow Rehearsal page that turns the previous campaign into a guided simulation. A rehearsal pack lists, for each main workflow step (selection, terms, copy, outreach, reply classification, negotiation, follow-up, confirmation), the questions automation needs answered, the AI's prefill from past records, its confidence, conflicts, and evidence.
+- Answer each question by accepting the prefill, entering your own value, marking it unsure, or marking it not applicable. Objective values (fees, rates, limits) are used only after explicit confirmation; unsure and not-applicable answers are never used.
+- Replay real incoming messages from the local workbench next to the AI's suggestion and the reply actually sent at the time, then choose the AI suggestion, the historical reply, or your own approach. Differences are listed separately for review. Condition changes are always marked as requiring your confirmation.
+- Store rehearsal packs as immutable, hash-checked imports and answers as an append-only history with request IDs and revision checks. The page reads the business database read-only, sends nothing, and changes no creator records.
+
+## 0.13.0
+
+- Add a Connections & Settings page that gathers every prerequisite in one checklist: local business data, Feishu mail sign-in, sender mailbox, test recipient, run mode, sending limits, delegation parameters, scheduled sync, and the browser/platform check. Each item shows its state, the features that depend on it, and the next step.
+- Block only the features that depend on a missing item. Show a banner on the home page while required settings are incomplete and link to the page from every navigation bar.
+- Detect the local `lark-cli` installation, user sign-in, and mail read/send scopes, and list the mailboxes the signed-in account can access. Return only display-safe fields; tokens and account IDs are never returned or stored.
+- Choose the sender mailbox only from accessible mailboxes. Store settings with a version number and change history, and reject stale or out-of-range values.
+- Send a connection test email to the test recipient only when the user clicks the button. Record the attempt before sending, treat timeouts and unreadable responses as unknown, refuse to resend until the result is reconciled against the Sent folder, report bounces and administrator blocks, and accept only replies from the test recipient.
+- Start in test mode. Switching to live mode requires explicit confirmation and a passed send-and-reply test with the current mailboxes; changing either mailbox returns to test mode.
+- Inbox sync, outbound business email, and delegation are not active yet; their parameters are saved for upcoming releases.
+
 ## 0.12.0
 
 - Replace manual platform account and evidence forms with browser-bound automatic identity checks and explicit page selection. Keep login inside the selected browser profile.

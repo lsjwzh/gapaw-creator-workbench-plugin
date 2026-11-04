@@ -2,8 +2,8 @@
   "schema": 1,
   "id": "gapaw-creator-workbench",
   "name": "Gapaw 达人工作台",
-  "version": "0.12.0",
-  "description": "按十个业务步骤组织达人运营；资料、文案、事件、消息、谈判和导出均由插件内置 Rust 与独立业务库处理，无需旧服务。支持保留原库的完整迁入；不自动发送消息。",
+  "version": "0.13.1",
+  "description": "按十个业务步骤组织达人运营；资料、文案、事件、消息、谈判和导出均由插件内置 Rust 与独立业务库处理，无需旧服务。支持保留原库的完整迁入。“连接与设置”页统一引导业务数据、飞书邮箱、测试邮箱与运行参数；只在你点击时向测试邮箱发送连接测试信，不自动发送业务消息。",
   "engine": {
     "type": "command",
     "binary": "bin/gapaw-creator-workbench",
@@ -74,7 +74,15 @@
     "selection-preview-adoption",
     "selection-adopt",
     "selection-adoption-status",
-    "selection-clear-environment"
+    "selection-clear-environment",
+    "setup-status",
+    "setup-save",
+    "mail-status",
+    "mail-test",
+    "rehearsal-status",
+    "rehearsal-item",
+    "rehearsal-answer",
+    "rehearsal-import"
   ],
   "ui": "ui/index.html",
   "setup": {

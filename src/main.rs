@@ -20,9 +20,11 @@ mod local_store;
 mod observations;
 mod platform;
 mod platform_check;
+mod rehearsal;
 mod results;
 mod selection;
 mod selection_data;
+mod setup;
 mod workbench;
 mod workbench_store;
 
@@ -113,6 +115,8 @@ fn open_db(path: &Path, write: bool) -> Result<Option<Connection>> {
         drafts::init(&db)?;
         facts::init(&db)?;
         selection::init(&db)?;
+        setup::init(&db)?;
+        rehearsal::init(&db)?;
     }
     Ok(Some(db))
 }
@@ -350,6 +354,19 @@ fn execute(
     }
     if ["local-workbench-status", "local-workbench-init"].contains(&command) {
         return local_backend::execute(command, input, path);
+    }
+    if [
+        "rehearsal-status",
+        "rehearsal-item",
+        "rehearsal-answer",
+        "rehearsal-import",
+    ]
+    .contains(&command)
+    {
+        return rehearsal::execute(command, input, path);
+    }
+    if ["setup-status", "setup-save", "mail-status", "mail-test"].contains(&command) {
+        return setup::execute(command, input, path);
     }
     if command.starts_with("selection-") {
         return selection::execute(command, input, path, host);

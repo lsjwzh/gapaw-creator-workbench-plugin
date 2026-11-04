@@ -10,12 +10,13 @@
   <script src="./drafts.js" defer></script>
   <script src="./facts.js" defer></script>
   <script src="./workbench.js" defer></script>
+  <script src="./setup.js" defer></script>
 </head>
 <body class="wb">
   <div class="shell wide">
     <header class="topbar">
       <a class="brand" href="./index.html"><span class="mark" aria-hidden="true">达</span>Gapaw 达人工作台</a>
-      <nav aria-label="工作台导航"><a href="#tab=creators">达人</a><a href="#tab=conversations">谈判总览</a><a href="./drafts.html">草稿任务</a><a href="./selection.html">按回本率选人</a><a href="#data" id="wb-data-link">数据管理</a></nav>
+      <nav aria-label="工作台导航"><a href="#tab=creators">达人</a><a href="#tab=conversations">谈判总览</a><a href="./drafts.html">草稿任务</a><a href="./selection.html">按回本率选人</a><a href="#data" id="wb-data-link">数据管理</a><a href="./setup.html">连接与设置</a><a href="./rehearsal.html">影子演练</a></nav>
     </header>
     <main>
       <section class="card wb-modules" aria-labelledby="wb-module-heading">
@@ -34,6 +35,7 @@
         </nav>
         <div id="wb-module-overview" class="module-overview"><h2>选人</h2><p>查看已有达人档案，按回本率发起选人任务；没有数据时可先迁入已有记录或建立空白工作台。</p></div>
       </section>
+      <div id="wb-setup-banner" class="notice wb-setup-banner" role="status" hidden></div>
       <div id="wb-notice" class="notice" role="status" aria-live="polite">正在读取本地工作台数据；所有业务模块均可进入。</div>
       <details id="wb-data" class="card wb-data" aria-labelledby="wb-data-title">
         <summary id="wb-data-title">本地数据管理</summary>
