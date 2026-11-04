@@ -70,6 +70,27 @@ fn current(db: Option<&Connection>) -> Result<Value> {
         json!({"version":stored["version"].as_i64().unwrap_or(0),"updatedAt":stored["updatedAt"],"values":values}),
     )
 }
+/// 读取当前保存的发件邮箱；尚未设置时返回空字符串。
+pub(crate) fn sender_mailbox(db: Option<&Connection>) -> Result<String> {
+    Ok(current(db)?["values"]["senderMailbox"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase())
+}
+
+/// 发件箱用：当前设置值与最近一次邮箱检测结果。
+pub(crate) fn outbox_settings(path: &Path) -> Result<(Value, Value)> {
+    let db = open_db(path, false)?;
+    Ok((
+        current(db.as_ref())?["values"].clone(),
+        read(db.as_ref(), MAIL_CHECK_KEY)?,
+    ))
+}
+/// 已登录、有收发权限，且发件邮箱在可访问列表里。
+pub(crate) fn mail_usable(check: &Value, sender: &str) -> bool {
+    mail_ready(check) && mailboxes(check).contains(&sender.to_ascii_lowercase())
+}
 
 fn is_email(v: &str) -> bool {
     let Some((local, domain)) = v.split_once('@') else {
@@ -251,14 +272,14 @@ fn save(input: &Value, path: &Path) -> Result<Value> {
 
 // —— 飞书命令行 ——
 #[derive(Debug, PartialEq)]
-enum CliError {
+pub(crate) enum CliError {
     Timeout,
     Unreadable,
     Failed(String),
     Spawn(String),
 }
 impl CliError {
-    fn message(&self) -> String {
+    pub(crate) fn message(&self) -> String {
         match self {
             CliError::Timeout => "飞书命令行超时未返回".into(),
             CliError::Unreadable => "飞书命令行返回了无法解析的内容".into(),
@@ -267,11 +288,11 @@ impl CliError {
         }
     }
 }
-struct Cli {
-    path: PathBuf,
+pub(crate) struct Cli {
+    pub(crate) path: PathBuf,
 }
 impl Cli {
-    fn locate() -> Option<Self> {
+    pub(crate) fn locate() -> Option<Self> {
         if let Some(p) = env::var_os("GAPAW_LARK_CLI") {
             let p = PathBuf::from(p);
             return (p.is_absolute() && p.is_file()).then_some(Cli { path: p });
@@ -285,7 +306,11 @@ impl Cli {
             .find(|p| p.is_file())
             .map(|path| Cli { path })
     }
-    fn run(&self, args: &[&str], timeout: Duration) -> std::result::Result<Value, CliError> {
+    pub(crate) fn run(
+        &self,
+        args: &[&str],
+        timeout: Duration,
+    ) -> std::result::Result<Value, CliError> {
         let mut child = Command::new(&self.path)
             .args(args)
             .env("LARKSUITE_CLI_NO_UPDATE_NOTIFIER", "1")
@@ -359,7 +384,7 @@ fn error_text(v: &Value) -> String {
         .unwrap_or("飞书命令行返回失败");
     text.chars().take(300).collect()
 }
-fn payload(v: &Value) -> &Value {
+pub(crate) fn payload(v: &Value) -> &Value {
     if v["data"].is_object() {
         &v["data"]
     } else {
@@ -444,7 +469,12 @@ fn mail_status(path: &Path) -> Result<Value> {
     Ok(result)
 }
 
-fn delivery(cli: &Cli, sender: &str, message_id: &str) -> Option<&'static str> {
+pub(crate) fn delivery(
+    cli: &Cli,
+    sender: &str,
+    message_id: &str,
+    timeout: Duration,
+) -> Option<&'static str> {
     let params = json!({"user_mailbox_id":sender,"message_id":message_id}).to_string();
     let v = cli
         .run(
@@ -457,7 +487,7 @@ fn delivery(cli: &Cli, sender: &str, message_id: &str) -> Option<&'static str> {
                 "--as",
                 "user",
             ],
-            Duration::from_secs(20),
+            timeout,
         )
         .ok()?;
     let codes: Vec<i64> = payload(&v)["details"]
@@ -610,7 +640,9 @@ fn mail_test(input: &Value, path: &Path) -> Result<Value> {
                     record["error"] = json!(format!("邮箱禁止自动发送：{reason}"));
                 } else if let Some(mid) = p["message_id"].as_str().filter(|s| !s.is_empty()) {
                     record["messageId"] = json!(mid);
-                    record["state"] = json!(delivery(&cli, &sender, mid).unwrap_or("accepted"));
+                    record["state"] =
+                        json!(delivery(&cli, &sender, mid, Duration::from_secs(20))
+                            .unwrap_or("accepted"));
                 } else {
                     record["state"] = json!("unknown");
                     record["error"] = json!("发送命令未返回邮件编号，结果待核对");
@@ -647,7 +679,7 @@ fn mail_test(input: &Value, path: &Path) -> Result<Value> {
     }
     if let Some(mid) = record["messageId"].as_str().map(str::to_string) {
         if record["state"] != "replied" {
-            if let Some(d) = delivery(&cli, &sender, &mid) {
+            if let Some(d) = delivery(&cli, &sender, &mid, Duration::from_secs(20)) {
                 record["state"] = json!(d);
             }
         }
@@ -954,11 +986,11 @@ fn status(input: &Value, path: &Path) -> Result<Value> {
         "ok",
         if s["enabled"] == true {
             format!(
-                "每 {} 分钟同步一次收件（需要本机 MultiCC 在线；收件同步功能上线后生效）。",
+                "已保存每 {} 分钟同步的参数；自动调度尚未接入，目前请在办公室手动同步。",
                 s["intervalMinutes"]
             )
         } else {
-            "已关闭；可随时手动同步（收件同步功能上线后生效）。".into()
+            "定时同步已关闭；可在办公室点击“同步邮件”手动同步。".into()
         },
         &["收件同步"],
         false,
@@ -984,9 +1016,21 @@ fn status(input: &Value, path: &Path) -> Result<Value> {
         .iter()
         .filter(|i| i["required"] == true && i["state"] != "ok")
         .count();
+    // 只给出上次邮件同步的时间与计数，不带主题和达人名单。
+    let sync = read(db.as_ref(), "mail_sync")?;
+    let count = |folder: &str| {
+        sync["lastResult"]["folders"][folder]["new"]
+            .as_u64()
+            .unwrap_or(0)
+    };
+    let mail_sync = if sync["lastRunAt"].is_string() {
+        json!({"lastRunAt":sync["lastRunAt"],"mailbox":sync["mailbox"],"lastResult":{"imported":count("inbox")+count("sent"),"unmatched":sync["lastResult"]["unmatched"]}})
+    } else {
+        Value::Null
+    };
     Ok(
         json!({"version":cur["version"],"updatedAt":cur["updatedAt"],"values":values,"items":items,"pending":pending,"features":features,
-        "mailCheck":check,"mailTest":test,"history":history(db.as_ref())}),
+        "mailCheck":check,"mailTest":test,"history":history(db.as_ref()),"mailSync":mail_sync}),
     )
 }
 

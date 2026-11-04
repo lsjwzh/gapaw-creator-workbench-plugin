@@ -186,16 +186,29 @@ fn check_sidecars(path: &Path) -> Result<()> {
     Ok(())
 }
 pub fn init_connection(db: &Connection) -> Result<()> {
+    // 已有身份时 INSERT OR IGNORE 保留原身份，重复初始化不改变业务库身份。
+    init_inner(db, &Uuid::new_v4().to_string()).map(|_| ())
+}
+/// 整库更新时沿用原业务库身份，其余初始化步骤与 `init_connection` 完全一致。
+pub(crate) fn init_connection_with_identity(db: &Connection, identity: &str) -> Result<()> {
+    if Uuid::parse_str(identity).is_err() {
+        return Err("业务库身份格式不合法".into());
+    }
+    if init_inner(db, identity)? != identity {
+        return Err("已有业务库身份与预期不一致，未执行初始化".into());
+    }
+    Ok(())
+}
+fn init_inner(db: &Connection, identity: &str) -> Result<String> {
     validate_existing(db)?;
     db.execute_batch(SCHEMA)
         .map_err(|e| format!("无法初始化本地工作台结构：{e}"))?;
     db.execute(
         "INSERT OR IGNORE INTO meta(key,value) VALUES(?,?)",
-        params![IDENTITY_KEY, Uuid::new_v4().to_string()],
+        params![IDENTITY_KEY, identity],
     )
     .map_err(|e| e.to_string())?;
-    identity_connection(db)?;
-    Ok(())
+    identity_connection(db)
 }
 fn validate_existing(db: &Connection) -> Result<()> {
     let count: i64 = db

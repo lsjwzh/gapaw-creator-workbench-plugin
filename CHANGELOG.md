@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.14.0
+
+- Add a dedicated dispatcher and seven staff role tasks. Connections & Settings now selects the workspace, model and provider, registers a dedicated workspace when needed, and initializes the eight tasks without starting model turns. Frozen creation plans and stable request IDs recover partial initialization without creating duplicate tasks.
+- Add a Rust work-item ledger in the existing business database: source deduplication, atomic claims, fixed dispatch requests, host acceptance receipts, scoped worker context and candidate submissions. A lost dispatch receipt remains recoverable even if the worker has already submitted its candidate.
+- Reject candidate results when creator settings, drafts, messages, events or negotiation facts changed during execution. Validate task ownership and work versions, preserve idempotent submissions, and keep candidates separate from official business records and the outbox.
+- Let users create shadow work from a creator's conversation, wake the dispatcher manually, inspect returned candidates and cancel work. The office shows recorded work states and links to the actual role tasks; task creation and host acceptance are never presented as completed business work.
+- Keep real email testing deferred. Scheduled wakeups and automatic outbound messages remain disabled; candidate approval and adoption will follow in the next shadow-decision slice.
+
+## 0.13.4
+
+- Add an outbox so hand-written emails can be sent from the plugin (`outbox-list`, `outbox-save`, `outbox-send`, `outbox-check`, `outbox-cancel`). Sending creates a Feishu draft, records the draft ID, sends the draft, and checks the delivery status. The record is saved as "sending" before any mail call, and send is only called after the draft ID is stored, and a cross-process lock serializes sending and reconciliation. Unsettled mail is blocked from resending after a timeout, crash, or repeated click.
+- Reconcile unsettled mail with unique matching evidence from the sent folder. Live mail requires matching sender, recipient, subject, time, and full plain-text body. A remaining remote draft does not prove a timed-out send was unsuccessful; it stays unsettled. Only interruptions before any draft ID was recorded can return to ready-to-send.
+- Re-check hard rules right before sending: no explicit refusal, no earlier bounce, a registered creator address, no new reply since the email was written, no bare amounts, all placeholders filled, the daily limit, the sending window, the follow-up count, and the minimum interval.
+- In test mode, force the recipient to the test address, tag the subject with a test reference and the body with a test notice, keep test mail out of the business messages and facts, and record the test recipient's reply on the outbox entry. In live mode, reply in the creator's thread when there is an incoming email, and record the sent message and send facts.
+- Add a compose area and outbox list to the creator drawer, plus an outbox panel and a "results to reconcile" card on the home page.
+
+## 0.13.3
+
+- Retire the previous ten-module workbench, draft tasks, ROI selection, legacy report and candidate pages. The pixel office (`ui/index.html`), Connections & Settings, and Shadow Rehearsal are the only pages. The business database, history, and backend commands are kept as the data layer; shared request and MultiCC task-dispatch helpers move to `ui/client.js`.
+- Move data management into Connections & Settings: create an empty workbench, import an existing ledger, or refresh from the original ledger.
+- Add `preview-workbench-refresh` and `refresh-workbench`. A refresh is allowed only when the plugin database is unchanged since the last import (per-table digests in the import receipt). It previews per-table counts, backs up the current database, keeps the business identity, replaces the database atomically, and records a new receipt.
+- Add `creator-import-preview` and `creator-import` to register creators contacted outside the original ledger, together with their send facts. Imports are validated, digest-confirmed, conflict-checked, and idempotent.
+- Add `mail-sync`, which incrementally lists the sender mailbox's inbox and sent folders through `lark-cli`. It keeps only mail exchanged with known creator addresses, deduplicates by message ID and by subject and time against older records, counts unmatched mail without creating creators, and stores a sync cursor. Preview mode writes nothing.
+- On the home page, add a "Sync mail now" button, new-mail cards for creators without a negotiation, and a read-only creator drawer (`office-creator`) showing negotiation status and recent messages. The reply funnel now also counts synced replies from real people.
+
+## 0.13.2
+
+- Make a pixel-art office the plugin home page. Seven AI staff sit along the workflow (selection, copy, follow-up, sending, inbox sorting, negotiation, fulfilment) next to a mailbox, an inbox tray, and your desk. The previous workbench remains available as a secondary page with all its features.
+- Show the real state by default: who is blocked by missing settings, who is waiting for rehearsal answers, and which negotiations are waiting for your reply. Cards on your desk link to Connections & Settings, Shadow Rehearsal, and the negotiation overview. A 14-day calendar shows past activity and the follow-up plan.
+- Add a "Simulate a day" mode that animates staff working, carrying files between desks, sending and receiving mail, and raising their hands for decisions that need you. Simulation only changes the page: it sends nothing and changes no data. It uses sample handles when there is too little real data.
+- Add the read-only `office-status` command, implemented in Rust, that summarizes daily activity, funnel counts, negotiations, unanswered creators, rehearsal progress, and setup status. It never returns email addresses or message bodies.
+
 ## 0.13.1
 
 - Add a Shadow Rehearsal page that turns the previous campaign into a guided simulation. A rehearsal pack lists, for each main workflow step (selection, terms, copy, outreach, reply classification, negotiation, follow-up, confirmation), the questions automation needs answered, the AI's prefill from past records, its confidence, conflicts, and evidence.

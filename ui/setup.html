@@ -5,15 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>连接与设置 · Gapaw 达人工作台</title>
   <link rel="stylesheet" href="./style.css">
-  <script src="./data-workflow.js" defer></script>
-  <script src="./app.js" defer></script>
+  <script src="./client.js" defer></script>
   <script src="./setup.js" defer></script>
+  <script src="./team.js" defer></script>
 </head>
 <body class="wb">
   <div class="shell">
     <header class="topbar">
       <a class="brand" href="./index.html"><span class="mark" aria-hidden="true">达</span>Gapaw 达人工作台</a>
-      <nav aria-label="工作台导航"><a href="./index.html">返回工作台</a><a href="./selection.html">按回本率选人</a><a href="./rehearsal.html">影子演练</a><a href="./connection-help.html">说明</a></nav>
+      <nav aria-label="工作台导航"><a href="./index.html">返回办公室</a><a href="./rehearsal.html">影子演练</a><a href="./index.html#outbox">发件箱</a></nav>
     </header>
     <main>
       <section class="intro">
@@ -23,6 +23,7 @@
       <div id="setup-summary" class="notice" role="status" aria-live="polite">正在读取设置…</div>
       <div id="setup-features" class="setup-features" aria-label="功能可用情况"></div>
       <div id="setup-list" class="setup-list"></div>
+      <section id="team-panel" class="card" aria-label="办公室与员工任务"></section>
       <section class="card setup-history" aria-labelledby="setup-history-title">
         <h2 id="setup-history-title">最近修改</h2>
         <ul id="setup-history" class="hint"></ul>

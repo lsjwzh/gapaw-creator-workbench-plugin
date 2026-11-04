@@ -80,12 +80,10 @@ def main():
                 dialogs = []
                 page.on('dialog', lambda d: (dialogs.append(d.message), d.accept()))
 
-                # 首页提示未完成的设置，并能进入设置页。
+                # 首页（像素办公室）提示先准备数据，并能进入设置页。
                 page.goto(base + 'index.html')
-                banner = page.locator('#wb-setup-banner')
-                expect(banner).to_be_visible()
-                expect(banner).to_contain_text('项连接与设置未完成')
-                banner.get_by_role('link', name='去设置').click()
+                expect(page.locator('#asks')).to_contain_text('先准备业务数据')
+                page.locator('.ask', has_text='先准备业务数据').get_by_role('button', name='去连接与设置').click()
                 expect(page).to_have_url(base + 'setup.html')
 
                 # 打开即自动检测登录；未完成项与受影响功能分别显示。
@@ -149,6 +147,14 @@ def main():
                 expect(page.locator('#setup-mailLogin .tag')).to_have_text('需要处理')
                 expect(page.locator('#setup-mailLogin')).to_contain_text('lark-cli auth login')
                 expect(send).to_be_disabled()
+
+                # 业务数据：页面内新建空白工作台；之后不再显示迁入入口。
+                data = page.locator('#setup-data')
+                expect(data).to_contain_text('尚未建立业务库')
+                data.get_by_role('button', name='新建空白工作台').click()
+                expect(page.locator('#setup-data .tag')).to_have_text('可用')
+                expect(page.locator('#setup-data')).to_contain_text('达人 0 位')
+                expect(page.locator('#setup-data')).not_to_contain_text('预览迁入')
 
                 mobile = browser.new_page(viewport={'width': 390, 'height': 844})
                 mobile.goto(base + 'setup.html')
