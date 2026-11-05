@@ -21,7 +21,7 @@ function fixture(t) {
   const fail = (c, i) => { const r = raw(c, i); assert.equal(r.ok, false, JSON.stringify(r)); return r.error; };
   const sql = (statement, values = []) => JSON.parse(execFileSync('python3', ['-c', 'import sqlite3,json,sys; d=sqlite3.connect(sys.argv[1]); c=d.execute(sys.argv[2],json.loads(sys.argv[3])); a=c.fetchall(); d.commit(); print(json.dumps(a))', path.join(root, 'workbench.sqlite'), statement, JSON.stringify(values)], { encoding: 'utf8' }));
   const setup = () => run('team-configure', { expectedVersion: 0, workspace: { dirId: 'team-dir', path: workspace }, runtime: { cli: 'codex-exp', provider: 'fixture-line', model: 'fixture-model' } });
-  const tasks = new Map(), messages = new Map(); let lost = false, moved = false;
+  const tasks = new Map(), messages = new Map(), hostRoles = new Map(); let lost = false, moved = false, roleLost = false, deliveryReady = true, roleBusy = false, roleWrites = 0;
   const fetcher = async (url, options) => {
     const body = options?.body ? JSON.parse(options.body) : {};
     let value;
@@ -32,7 +32,16 @@ function fixture(t) {
       assert.match(body.rolePrompt, /不直接改 SQLite/);
       if (!tasks.has(body.clientMsgId)) { const n = tasks.size; tasks.set(body.clientMsgId, { ok: true, taskId: 'tsk_role_' + n, sessionId: 'session_' + n, shellId: 'shell_' + n, url: '/air?task=tsk_role_' + n + '&dir=team-dir' }); }
       value = tasks.get(body.clientMsgId);
+      if (!hostRoles.has(value.taskId)) hostRoles.set(value.taskId, { taskId: value.taskId, version: 0, bindings: [{ name: '原有角色', prompt: body.rolePrompt }] });
       if (lost) { lost = false; throw new Error('模拟创建响应丢失'); }
+    } else if (/^\/api\/air\/tasks\/[^/]+$/.test(url)) {
+      const taskId = url.split('/')[4]; value = { task: { id: taskId }, roleBindings: hostRoles.get(taskId), readOnly: false, execution: { busy: roleBusy, queue: { active: null, queued: [] } } };
+    } else if (url.endsWith('/deliveries?limit=1')) {
+      if (!deliveryReady) throw Error('宿主未加载交付接口'); value = { items: [] };
+    } else if (/^\/api\/air\/tasks\/[^/]+\/roles$/.test(url)) {
+      const taskId = url.split('/')[4], previous = hostRoles.get(taskId); assert.equal(body.expectedVersion, previous.version);
+      roleWrites++; const saved = { taskId, version: previous.version + 1, bindings: body.bindings }; hostRoles.set(taskId, saved);
+      if (roleLost) { roleLost = false; throw Error('模拟角色更新受理后响应丢失'); } value = { ok: true, roleBindings: saved };
     } else if (/^\/api\/task-shell-tasks\/.+\/messages$/.test(url)) {
       const taskId = url.split('/')[3]; const key = taskId + ':' + body.clientMsgId;
       if (!messages.has(key)) messages.set(key, { ok: true, taskId, receiptId: 'receipt-' + messages.size }); value = messages.get(key);
@@ -47,8 +56,52 @@ function fixture(t) {
   const claim = () => run('work-next', { taskId: task('dispatcher') });
   const context = id => run('work-context', { workId: id, taskId: task('sort') });
   const candidate = ctx => ({ ...ctx.submissionTemplate, result: { summary: '需要老板确认的候选分类', evidence: ['已有档案与当前消息，仅供影子审阅'] } });
-  return { root, workspace, env, raw, run, fail, sql, setup, ready, flow, tasks, messages, create, task, claim, context, candidate, lost: () => { lost = true; }, move: () => { moved = true; } };
+  const legacyRoles = () => {
+    for (const row of roles()) {
+      row.plan.rolePrompt = '旧版角色协议：' + row.key;
+      sql('UPDATE staff SET plan=? WHERE key=?', [JSON.stringify(row.plan), row.key]);
+      hostRoles.get(row.task.taskId).bindings[0].prompt = row.plan.rolePrompt;
+    }
+  };
+  return { root, workspace, env, raw, run, fail, sql, setup, ready, flow, tasks, messages, create, task, claim, context, candidate, hostRoles, legacyRoles,
+    roleWrites: () => roleWrites, loseRole: () => { roleLost = true; }, missingDelivery: () => { deliveryReady = false; }, busyRole: () => { roleBusy = true; },
+    lost: () => { lost = true; }, move: () => { moved = true; } };
 }
+
+test('旧办公室协议升级只改原任务角色，冻结计划与模型配置保持不变', async t => {
+  const f = fixture(t); await f.ready(); f.legacyRoles();
+  const before = f.run('team-status');
+  const roles = [...f.hostRoles.values()];
+  const first = f.run('team-role-upgrade-plan', { roles });
+  assert.deepEqual(f.run('team-role-upgrade-plan', { roles }), first); assert.equal(first.updates.length, 8);
+  assert.deepEqual(await f.flow().upgradeRoles(), { updated: 8, taskCount: 8, protocolVersion: 1 });
+  assert.deepEqual(f.run('team-status'), before); assert.equal(f.tasks.size, 8); assert.equal(f.messages.size, 0);
+  assert.match(f.hostRoles.get(f.task('sel')).bindings[0].prompt, /delivery-prepare/);
+  assert.match(f.hostRoles.get(f.task('copy')).bindings[0].prompt, /read\/check/);
+  assert.equal((await f.flow().upgradeRoles()).updated, 0); assert.equal(f.roleWrites(), 8);
+});
+
+test('角色升级响应丢失后读回恢复，不重复改版本或新建任务', async t => {
+  const f = fixture(t); await f.ready(); f.legacyRoles(); f.loseRole();
+  await assert.rejects(f.flow().upgradeRoles(), /网络连接失败/); assert.equal(f.roleWrites(), 1);
+  assert.equal((await f.flow().upgradeRoles()).updated, 7); assert.equal(f.roleWrites(), 8);
+  assert.ok([...f.hostRoles.values()].every(r => r.version === 1)); assert.equal(f.tasks.size, 8);
+});
+
+test('自定义角色、缺失或重复快照拒绝整批升级', async t => {
+  const f = fixture(t); await f.ready(); f.legacyRoles();
+  const roles = [...f.hostRoles.values()];
+  assert.match(f.fail('team-role-upgrade-plan', { roles: roles.slice(1) }), /完整/);
+  assert.match(f.fail('team-role-upgrade-plan', { roles: [...roles.slice(1), roles[1]] }), /重复/);
+  roles[3].bindings[0].prompt = '用户自行定制的操作方式';
+  await assert.rejects(f.flow().upgradeRoles(), /自行修改/); assert.equal(f.roleWrites(), 0);
+});
+
+test('旧宿主或忙碌任务不能进行角色协议升级', async t => {
+  const f = fixture(t); await f.ready(); f.legacyRoles(); f.busyRole();
+  await assert.rejects(f.flow().upgradeRoles(), /执行或排队/); assert.equal(f.roleWrites(), 0);
+  f.missingDelivery(); await assert.rejects(f.flow().upgradeRoles(), /先完成宿主更新/); assert.equal(f.roleWrites(), 0);
+});
 
 test('未初始化时只读查询不建表、不建数据文件', t => {
   const f = fixture(t); assert.equal(f.run('team-status').configured, false); assert.deepEqual(f.run('work-list').items, []);
@@ -172,4 +225,44 @@ test('超过首页两百条显示上限后，仍能唤醒较早的待派发工�
   }
   const status = f.run('team-status'); assert.equal(status.items.length, 200); assert.equal(status.wakeWorkId, original.id);
   await f.flow().wake(); assert.equal(f.messages.size, 1); assert.equal(f.claim().item.id, original.id);
+});
+
+async function deliveryFixture(t, products = true) {
+  const f = fixture(t); await f.ready();
+  f.sql('UPDATE creators SET profile=?,settings=? WHERE id=?', [JSON.stringify(products ? { products: '已核验狗用精华', topic: '养犬' } : {}), JSON.stringify({ product_checked: products, fee: 50 }), 'C1']);
+  const w = f.create('selection-delivery', { kind: 'selection' }); f.claim();
+  const ctx = f.run('work-context', { workId: w.id, taskId: f.task('sel') });
+  f.run('work-submit', f.candidate(ctx));
+  const prepare = () => f.run('delivery-prepare', { workId: w.id, taskId: f.task('sel') });
+  const validate = value => f.run('delivery-validate', { contract: value.input.contract, payload: value.input.payload, fromTaskId: f.task('sel'), toTaskId: f.task('copy') });
+  return { ...f, w, prepare, validate };
+}
+
+test('选人交付正文从业务库生成，明确保留缺失条件且不写正式数据', async t => {
+  const f = await deliveryFixture(t), data = f.prepare();
+  assert.equal(data.input.contract.type, 'selection-brief'); assert.equal(data.input.toTaskId, f.task('copy'));
+  assert.equal(data.input.payload.conditions.fee, 50); assert.ok(data.input.payload.missingConditions.includes('commission'));
+  assert.equal(f.validate(data).valid, true); assert.deepEqual(f.prepare(), data);
+  assert.equal(f.sql('SELECT count(*) FROM drafts')[0][0], 0); assert.equal(f.sql('SELECT count(*) FROM messages')[0][0], 0);
+});
+
+test('缺少已核验产品时禁止形成可交付选人资料', async t => {
+  const f = await deliveryFixture(t, false);
+  assert.match(f.fail('delivery-prepare', { workId: f.w.id, taskId: f.task('sel') }), /已核验的适配产品/);
+});
+
+test('交付契约拒绝虚构正文、错误接收角色和未知版本', async t => {
+  const f = await deliveryFixture(t), good = f.prepare();
+  const bad = structuredClone(good); bad.input.payload.conditions.fee = 500;
+  assert.equal(f.validate(bad).valid, false);
+  bad.input = structuredClone(good.input); bad.input.contract.version = 2; assert.equal(f.validate(bad).valid, false);
+  assert.equal(f.run('delivery-validate', { ...good.input, fromTaskId: f.task('sel') }).valid, false);
+  assert.equal(f.run('delivery-validate', { contract: good.input.contract, payload: good.input.payload, fromTaskId: f.task('sel'), toTaskId: f.task('deal') }).valid, false);
+  assert.match(f.fail('delivery-prepare', { workId: f.w.id, taskId: f.task('copy') }), /任务编号/);
+});
+
+test('交付后新来信使原版本校验失败，不能继续验收为最新资料', async t => {
+  const f = await deliveryFixture(t), good = f.prepare(); assert.equal(f.validate(good).valid, true);
+  f.sql("INSERT INTO messages(id,creator,direction,body) VALUES('new-mail','C1','in','条件改变')");
+  const checked = f.validate(good); assert.equal(checked.valid, false); assert.match(checked.issues.join(' '), /业务数据已变化/);
 });

@@ -42,6 +42,42 @@
         // 宿主注册响应丢失后，下次先查询原路径，不重复登记。
         return client.request('/api/directories', { name: info.name, path: info.path, create: true });
       },
+      async upgradeRoles(onProgress = () => {}) {
+        if (busy) throw new Error('办公室正在处理操作，请等待。');
+        busy = true;
+        try {
+          const data = await client.run('team-status');
+          if (!data.initialized) throw new Error('请先完成办公室初始化。');
+          await directory(data.config);
+          const read = async taskId => {
+            const value = await client.request('/api/air/tasks/' + encodeURIComponent(taskId));
+            if (!value.execution?.queue) throw new Error('无法核对角色任务的运行状态，请稍后重试。');
+            if (value.readOnly || value.execution?.busy || value.execution?.pending || value.execution?.queue?.active || value.execution?.queue?.queued?.length) throw new Error('角色任务仍在执行或排队，请等本轮结束后更新。');
+            if (value.task?.id !== taskId || value.roleBindings?.taskId !== taskId) throw new Error('宿主角色快照与办公室任务不一致。');
+            return value.roleBindings;
+          };
+          // 先确认宿主原生交付入口可读，再改变任何角色。
+          try { await client.request('/api/task-shell-tasks/' + encodeURIComponent(data.staff[0].task.taskId) + '/deliveries?limit=1'); }
+          catch (_) { throw new Error('MultiCC 尚未加载交付与验收接口，请先完成宿主更新。'); }
+          const snapshot = async () => {
+            const roles = [];
+            for (const row of data.staff) roles.push(await read(row.task.taskId));
+            return roles;
+          };
+          const plan = await client.run('team-role-upgrade-plan', { roles: await snapshot() });
+          for (const update of plan.updates) {
+            await read(update.taskId);
+            // 宿主校验 expectedVersion，并以固定 clientMsgId 恢复丢失响应。
+            await client.request(update.path, update.body);
+            const saved = await read(update.taskId);
+            if (JSON.stringify(saved.bindings) !== JSON.stringify(update.body.bindings)) throw new Error('角色更新尚未核对成功，请重试读取。');
+            onProgress(LABEL[update.staffKey] + '交接协议已更新');
+          }
+          const remaining = await client.run('team-role-upgrade-plan', { roles: await snapshot() });
+          if (remaining.updates.length) throw new Error('仍有角色尚未完成更新，请重试。');
+          return { updated: plan.updates.length, taskCount: 8, protocolVersion: plan.protocolVersion };
+        } finally { busy = false; }
+      },
       async wake() {
         const data = await client.run('team-status');
         if (!data.initialized) throw new Error('请先初始化办公室角色任务。');
@@ -119,6 +155,7 @@
         }));
       } else body.append(el('p', '工作目录：' + cfg.workspace.path + '；模型：' + cfg.runtime.model + '。任务创建计划已固定，重试会复用原编号。', 'hint'));
       if (data.configured && !data.initialized) body.append(button(data.staff.length ? '继续初始化办公室' : '初始化办公室', async () => { data = await flow.initialize(t => { message.textContent = t; }); }));
+      if (data.initialized) body.append(button('更新员工交接协议', async () => { await flow.upgradeRoles(t => { message.textContent = t; }); }));
       const list = el('ul');
       for (const row of data.staff) { const li = el('li', LABEL[row.key] + '：'); if (row.task) { const a = el('a', '打开角色任务'); a.href = row.task.url; a.target = '_blank'; a.rel = 'noopener'; li.append(a); } else li.append(doc.createTextNode('等待创建')); list.append(li); }
       body.append(list, el('p', '定时唤醒未开启。先从达人抽屉创建影子工单，再手动唤醒流转器。交回候选暂不自动采用。', 'hint'));

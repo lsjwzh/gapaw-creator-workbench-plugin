@@ -379,7 +379,10 @@ fn execute(
     if command.starts_with("outbox-") {
         return outbox::execute(command, input, path);
     }
-    if command.starts_with("team-") || command.starts_with("work-") {
+    if command.starts_with("team-")
+        || command.starts_with("work-")
+        || command.starts_with("delivery-")
+    {
         return workforce::execute(command, input, path);
     }
     if ["office-status", "office-creator"].contains(&command) {

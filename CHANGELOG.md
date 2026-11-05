@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.1
+
+- Add a versioned selection brief for handoff from the selection task to the copywriting task. Build the payload from recorded candidates and current business facts; reject changed source data, altered payloads and mismatched role tasks.
+- Integrate with the MultiCC task delivery tool for explicit recipient acceptance or return with missing items. Acceptance permits preparation of a candidate only; it does not approve business adoption or email sending.
+- Add an upgrade action for existing office role instructions. Verify all eight task bindings, preserve custom roles and frozen creation plans, and use host role versions and stable request identifiers to recover interrupted updates without creating tasks or starting model turns.
+- Require the host delivery interface before upgrading role instructions. Retain the current model and provider configuration and keep scheduled dispatch and automatic email sending disabled.
+
 ## 0.14.0
 
 - Add a dedicated dispatcher and seven staff role tasks. Connections & Settings now selects the workspace, model and provider, registers a dedicated workspace when needed, and initializes the eight tasks without starting model turns. Frozen creation plans and stable request IDs recover partial initialization without creating duplicate tasks.

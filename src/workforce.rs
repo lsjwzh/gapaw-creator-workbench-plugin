@@ -6,6 +6,9 @@ use sha2::{Digest, Sha256};
 use std::{path::Path, time::Duration};
 use uuid::Uuid;
 
+mod delivery;
+mod role_upgrade;
+
 const ROLES: [(&str, &str, &str); 8] = [
     (
         "dispatcher",
@@ -183,7 +186,12 @@ fn prompt(key: &str, label: &str, description: &str) -> String {
     } else {
         "只处理派给你的工单。先 work-context，输入 workId 与 taskId（你自己），插件会核对归属并返回当前上下文、数据版本与 submissionTemplate。按当前工单要求生成候选，将模板中的 result 填为 {summary, evidence:[非空依据], draft:{subject,body}（可选）}，调用 work-submit。summary 和 evidence 必填，明确缺失与不确定性。提交成功且读回后才称已交回；待老板确认不等于正式采用。版本过期就停止，报告需要重新准备工单，禁止覆盖。"
     };
-    format!("{common}\n你的员工键是 {key}，角色是{label}：{description}\n{protocol}\n插件调用：向 $MULTICC_BASE_URL/api/plugins/gapaw-creator-workbench/run POST JSON {{\"command\":\"命令名\",\"input\":{{...}}}}；业务内容在响应 data 中。不要在命令行打印令牌、Cookie 或邮箱密钥。")
+    let handoff = match key {
+        "sel" => "选人工单交回后，可用 delivery-prepare（workId、taskId）取得 selection-brief 契约正文，再调用宿主 task_delivery 提交给文案员工。插件核验失败则补齐实际资料，不自行改写交付正文。退回修订时保留 deliveryId 与 expectedVersion，创建新版本。",
+        "copy" => "收到交付通知时，先用宿主 task_delivery 的 read/check 读取并检查指定版本；这是交接验收步骤，不要求先有文案工单。内容够用则 accept 并说明理由，不足则 return 并逐项列出缺项。验收不等于老板采用，不授权外发；后续文案通过文案工单交回候选。",
+        _ => "",
+    };
+    format!("{common}\n{handoff}\n你的员工键是 {key}，角色是{label}：{description}\n{protocol}\n插件调用：向 $MULTICC_BASE_URL/api/plugins/gapaw-creator-workbench/run POST JSON {{\"command\":\"命令名\",\"input\":{{...}}}}；宿主 HTTP 成功响应直接返回业务对象；直接运行插件二进制才从 data 读取业务内容。不要在命令行打印令牌、Cookie 或邮箱密钥。")
 }
 fn configure(input: &Value, path: &Path) -> Result<Value> {
     only_keys(
@@ -625,6 +633,8 @@ fn submit(input: &Value, path: &Path) -> Result<Value> {
 }
 pub fn execute(command: &str, input: Value, path: &Path) -> Result<Value> {
     match command {
+        "team-role-upgrade-plan" => role_upgrade::plan(&input, path),
+        "delivery-prepare" | "delivery-validate" => delivery::execute(command, input, path),
         "team-workspace" => {
             only_keys(&input, &[], command)?;
             let home = std::env::var_os("HOME").ok_or("无法确定用户目录")?;
