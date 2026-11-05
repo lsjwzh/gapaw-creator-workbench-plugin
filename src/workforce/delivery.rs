@@ -6,11 +6,13 @@ fn contract() -> Value {
 }
 fn payload(db: &Connection, id: &str) -> Result<Value> {
     let item = work(db, id)?;
-    if item["kind"] != "selection" || item["state"] != "awaiting_review" {
+    if item["kind"] != "selection"
+        || !["awaiting_review", "handed_off"].contains(&item["state"].as_str().unwrap_or(""))
+    {
         return Err("仅已交回的选人候选可交给文案员工；不代表老板已采用".into());
     }
     let creator = required(&item, "creatorId")?;
-    if basis(db, creator)? != item["basis"] {
+    if !super::onboarding::current_work(db, id)? || basis(db, creator)? != item["basis"] {
         return Err("业务数据已变化，请重新准备选人工单与交付物".into());
     }
     let submissions = read_json(db, "SELECT value FROM submissions WHERE work_id=?", [id])?;

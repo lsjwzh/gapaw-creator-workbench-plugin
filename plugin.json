@@ -2,8 +2,8 @@
   "schema": 1,
   "id": "gapaw-creator-workbench",
   "name": "Gapaw 达人工作台",
-  "version": "0.14.1",
-  "description": "像素办公室首页与独立业务库：在“连接与设置”中配置模型、线路和工作目录，一次初始化独立流转器与 7 个员工角色任务。影子工单由 Rust 记账，候选交回后等你确认；首页按工单显示员工状态。保留邮件同步与发件箱，不自动外发，定时唤醒默认关闭。",
+  "version": "0.15.0",
+  "description": "首次引导设置目标、角色提示词与工作约定，完成真实开工检查后由后台时钟流转工单。选人交付经接收角色验收后才准备文案，卡点由老板决定；常规准备继续，邮件不自动外发。",
   "engine": {
     "type": "command",
     "binary": "bin/gapaw-creator-workbench",
@@ -110,9 +110,19 @@
     "work-submit",
     "work-cancel",
     "delivery-prepare",
-    "delivery-validate"
+    "delivery-validate",
+    "team-onboarding-status",
+    "team-onboarding-save",
+    "team-onboarding-roles",
+    "team-onboarding-role-save",
+    "team-onboarding-preflight",
+    "team-onboarding-control",
+    "team-onboarding-tick",
+    "team-onboarding-receive",
+    "team-onboarding-decide",
+    "work-report-blocker"
   ],
-  "ui": "ui/index.html",
+  "ui": "ui/onboarding.html",
   "setup": {
     "workspace": true
   }

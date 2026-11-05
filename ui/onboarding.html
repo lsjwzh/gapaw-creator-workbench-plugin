@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>开工引导与办公室 · Gapaw 工作室</title>
+<link rel="stylesheet" href="./onboarding.css">
+<script src="./client.js" defer></script>
+<script src="./onboarding-scene.js" defer></script>
+<script src="./onboarding.js" defer></script>
+
+</head>
+<body>
+<header class="top"><div class="brand"><span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><div>GAPAW 工作室<small>一起把事情做好</small></div></div><a href="./index.html">业务台账</a><a href="./setup.html">连接与设置</a><span class="prototype">真实角色 · 真实工单</span><button class="quiet" id="settings-btn" hidden>工作约定</button><button class="quiet journal-button" id="journal-btn"><span class="journal-label">老板的</span>手册 <span class="number" id="journal-count">0</span></button></header>
+<div id="global-notice" class="global-notice" role="status"></div>
+<main>
+  <div class="heading"><div><div class="overline">一次设置，自主推进</div><h1 id="scene-title">今天，先和团队见个面。</h1></div><span id="live-badge" class="live-badge" hidden></span><ol id="setup-steps" class="steps" aria-label="开工设置进度"><li data-step="0"><span>01</span>本轮目标</li><li data-step="1"><span>02</span>团队分工</li><li data-step="2"><span>03</span>工作约定</li><li data-step="3"><span>04</span>开始运行</li></ol></div>
+  <div class="layout">
+    <section aria-label="像素办公室"><div class="scene-head"><b id="room-label">工作室 · 第一场晨会</b><span>一位老板 / 八位伙伴</span></div><div class="room"><canvas id="office" width="640" height="460" aria-label="八位员工在工位上，小选会走到老板桌前汇报"></canvas><div class="pins" id="pins"></div><span class="boss-tag">你的办公桌</span></div><div class="ambient" role="status"><span class="dot" id="motion-dot"></span><span id="scene-caption">流转器正在介绍今天的安排。</span></div><div class="team-line"><div class="mini-avatars" id="mini-avatars" aria-hidden="true"></div><span class="count" id="ready-count">已认识 0 / 8 位伙伴</span></div><p class="room-caption">点一下员工，可以随时看看他的职责。</p><div class="note-strip" id="desk-note">先认识彼此的分工，工作才好交接。你可以保留员工的默认做法，也可以告诉他：以后按我的方式来。</div></section>
+    <section class="conversation" aria-labelledby="speaker-name"><header class="speaker"><canvas id="portrait" class="portrait" width="26" height="31" aria-hidden="true"></canvas><div><h2 id="speaker-name">流转器</h2><small id="speaker-job">把大家的工作接起来</small></div><span class="speech-tag" id="speech-tag">开场白</span></header><div class="dialogue" id="dialogue"></div><div class="feedback" id="feedback" role="alert"></div><div class="actions" id="actions"></div><div class="aside-action" id="aside-action"></div></section>
+  </div>
+  <footer class="foot"><span><i class="notice-dot"></i>工作约定与决定保存到业务库。候选和草稿准备不等于正式采用或邮件发送。</span><label class="reduced"><input id="reduce-motion" type="checkbox">减少动画</label><button class="text-btn" id="refresh-btn">刷新状态</button></footer>
+</main>
+<div class="journal-backdrop" id="modal" hidden><section class="journal" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1"><button id="modal-close" class="quiet close" aria-label="关闭">✕</button><h2 id="modal-title">老板的手册</h2><div id="modal-body"></div></section></div>
+<div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>

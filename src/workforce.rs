@@ -7,6 +7,7 @@ use std::{path::Path, time::Duration};
 use uuid::Uuid;
 
 mod delivery;
+mod onboarding;
 mod role_upgrade;
 
 const ROLES: [(&str, &str, &str); 8] = [
@@ -99,6 +100,7 @@ fn open(path: &Path, write: bool) -> Result<Option<Connection>> {
     db.pragma_update(None, "foreign_keys", true).map_err(err)?;
     if write {
         db.execute_batch(SCHEMA).map_err(err)?;
+        onboarding::init(&db)?;
     } else if !table(&db) {
         return Ok(None);
     }
@@ -408,18 +410,20 @@ fn claim(input: &Value, path: &Path) -> Result<Value> {
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(err)?;
     check_task(&tx, "dispatcher", input)?;
-    let id: Option<String>=tx.query_row("SELECT w.id FROM work_items w LEFT JOIN dispatches d ON d.work_id=w.id WHERE w.claim IS NOT NULL AND d.work_id IS NULL AND w.state<>'cancelled' ORDER BY w.created,w.id LIMIT 1",[],|r|r.get(0)).optional().map_err(err)?;
-    let id = if id.is_some() {
-        id
-    } else {
-        tx.query_row(
-            "SELECT id FROM work_items WHERE state='pending' ORDER BY created,id LIMIT 1",
-            [],
-            |r| r.get(0),
-        )
-        .optional()
+    let mut st = tx.prepare("SELECT w.id FROM work_items w LEFT JOIN dispatches d ON d.work_id=w.id WHERE w.state='pending' OR (w.claim IS NOT NULL AND d.work_id IS NULL AND w.state NOT IN ('cancelled','stale','blocked')) ORDER BY w.created,w.id").map_err(err)?;
+    let candidates = st
+        .query_map([], |r| r.get::<_, String>(0))
         .map_err(err)?
-    };
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(err)?;
+    drop(st);
+    let mut id = None;
+    for candidate in candidates {
+        if onboarding::can_claim(&tx, &candidate)? {
+            id = Some(candidate);
+            break;
+        }
+    }
     let Some(id) = id else {
         return Ok(json!({"item":null}));
     };
@@ -471,6 +475,9 @@ fn dispatched(input: &Value, path: &Path) -> Result<Value> {
         "awaiting_review",
         "stale",
         "cancelled",
+        "blocked",
+        "handed_off",
+        "draft_ready",
     ]
     .contains(&item["state"].as_str().unwrap_or(""))
     {
@@ -496,6 +503,7 @@ fn dispatched(input: &Value, path: &Path) -> Result<Value> {
 fn context(input: &Value, path: &Path) -> Result<Value> {
     only_keys(input, &["workId", "taskId"], "work-context")?;
     let id = identifier(input, "workId")?;
+    onboarding::upstream_current(path, &id)?;
     let mut db = open(path, true)?.ok_or("业务库未就绪")?;
     let tx = db
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -507,12 +515,13 @@ fn context(input: &Value, path: &Path) -> Result<Value> {
         return Err("工单当前不能领取处理上下文".into());
     }
     let creator = required(&item, "creatorId")?;
-    if basis(&tx, creator)? != item["basis"] {
+    if !onboarding::current_work(&tx, &id)? || basis(&tx, creator)? != item["basis"] {
         tx.execute(
             "UPDATE work_items SET state='stale',updated=? WHERE id=?",
             params![now(), id],
         )
         .map_err(err)?;
+        onboarding::data_changed(&tx, &id)?;
         tx.commit().map_err(err)?;
         return Err("业务数据已变化，工单已标为过期；请重新准备新工单".into());
     }
@@ -528,10 +537,11 @@ fn context(input: &Value, path: &Path) -> Result<Value> {
     let draft=tx.query_row("SELECT subject,body,revision FROM drafts WHERE creator=? AND channel='email'",[creator],|r|Ok(json!({"subject":r.get::<_,String>(0)?,"body":r.get::<_,String>(1)?,"revision":r.get::<_,i64>(2)?}))).optional().map_err(err)?;
     let negotiation=tx.query_row("SELECT status,our_offer,their_ask,next_step FROM negotiations WHERE creator=?",[creator],|r|Ok(json!({"status":r.get::<_,Option<String>>(0)?,"ourOffer":r.get::<_,Option<String>>(1)?,"theirAsk":r.get::<_,Option<String>>(2)?,"nextStep":r.get::<_,Option<String>>(3)?}))).optional().map_err(err)?;
     let out = work(&tx, &id)?;
+    let agreement = onboarding::context_values(&tx, &id)?;
     let template = json!({"workId":id,"taskId":input["taskId"],"submissionId":format!("{id}_candidate_1"),"expectedVersion":item["version"],"basis":item["basis"],"result":{"summary":"","evidence":[]}});
     tx.commit().map_err(err)?;
     Ok(
-        json!({"item":out,"creator":creator_data,"messages":messages,"emailDraft":draft,"negotiation":negotiation,"submissionTemplate":template,"boundary":"仅保存候选，等老板确认；禁止外发、承诺条件或改写正式数据。"}),
+        json!({"item":out,"creator":creator_data,"messages":messages,"emailDraft":draft,"negotiation":negotiation,"submissionTemplate":template,"workAgreement":agreement,"boundary":"仅保存候选，等老板确认；禁止外发、承诺条件或改写正式数据。"}),
     )
 }
 fn submit(input: &Value, path: &Path) -> Result<Value> {
@@ -549,6 +559,7 @@ fn submit(input: &Value, path: &Path) -> Result<Value> {
     )?;
     let id = identifier(input, "workId")?;
     let submission_id = identifier(input, "submissionId")?;
+    onboarding::upstream_current(path, &id)?;
     let result = &input["result"];
     only_keys(result, &["summary", "evidence", "draft"], "result")?;
     let summary = required(result, "summary")?;
@@ -601,14 +612,23 @@ fn submit(input: &Value, path: &Path) -> Result<Value> {
     if input["expectedVersion"] != item["version"] || input["basis"] != item["basis"] {
         return Err("工单版本或依据不匹配".into());
     }
-    if basis(&tx, required(&item, "creatorId")?)? != item["basis"] {
+    if !onboarding::current_work(&tx, &id)?
+        || basis(&tx, required(&item, "creatorId")?)? != item["basis"]
+    {
         tx.execute(
             "UPDATE work_items SET state='stale',updated=? WHERE id=?",
             params![now(), id],
         )
         .map_err(err)?;
+        onboarding::data_changed(&tx, &id)?;
         tx.commit().map_err(err)?;
         return Err("业务数据已变化，拒绝过期交回；请重新准备工单".into());
+    }
+    if item["kind"] == "copy"
+        && !onboarding::context_values(&tx, &id)?.is_null()
+        && !result["draft"].is_object()
+    {
+        return Err("文案工单必须交回完整候选草稿，不能把摘要标成草稿完成".into());
     }
     let submission = json!({"id":submission_id,"workId":id,"staffKey":item["staffKey"],"taskId":input["taskId"],"basis":item["basis"],"result":result,"state":"awaiting_review","createdAt":now()});
     tx.execute(
@@ -632,6 +652,9 @@ fn submit(input: &Value, path: &Path) -> Result<Value> {
     Ok(json!({"submission":submission,"item":out,"replay":false}))
 }
 pub fn execute(command: &str, input: Value, path: &Path) -> Result<Value> {
+    if command.starts_with("team-onboarding-") || command == "work-report-blocker" {
+        return onboarding::execute(command, input, path);
+    }
     match command {
         "team-role-upgrade-plan" => role_upgrade::plan(&input, path),
         "delivery-prepare" | "delivery-validate" => delivery::execute(command, input, path),
