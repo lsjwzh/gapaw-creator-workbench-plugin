@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.15.0
+
+- Make guided onboarding the plugin entry page. Save the product goal, existing creator scope and working agreement, review or edit the eight bound role prompts, and check host readiness before starting.
+- Add a Rust office runtime with versioned settings, persistent work records and an explicit start/pause control. Starting registers one host scheduler job; closing the page does not stop queue coordination. Stable request identifiers recover lost scheduling and wake receipts without duplicate operations.
+- Continue from selection to copywriting only after the current recipient accepts a validated native host delivery. Recover missed continuations through paginated delivery reads and retain complete draft candidates separately from official business tables.
+- Present staff blockers with missing items and recommendations. Let the owner wait, exclude or request another review while unrelated work continues. Delayed receipts prompt investigation without invalidating legitimate late results.
+- Invalidate affected recommendations after agreement or role changes, reject stale submissions, preserve history, and keep unsaved page inputs during status polling. Require the companion host delivery API and explicit user setup; do not start real role turns or send email during installation.
+
 ## 0.14.1
 
 - Add a versioned selection brief for handoff from the selection task to the copywriting task. Build the payload from recorded candidates and current business facts; reject changed source data, altered payloads and mismatched role tasks.
