@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "gapaw-creator-workbench",
   "name": "Gapaw 达人工作台",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "description": "像素办公室首页与独立业务库：在“连接与设置”中配置模型、线路和工作目录，一次初始化独立流转器与 7 个员工角色任务。影子工单由 Rust 记账，候选交回后等你确认；首页按工单显示员工状态。保留邮件同步与发件箱，不自动外发，定时唤醒默认关闭。",
   "engine": {
     "type": "command",
@@ -100,6 +100,7 @@
     "team-configure",
     "team-prepare",
     "team-record-task",
+    "team-role-upgrade-plan",
     "work-create",
     "work-list",
     "work-get",

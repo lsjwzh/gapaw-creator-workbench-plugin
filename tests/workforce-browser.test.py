@@ -110,6 +110,9 @@ def main():
                 panel.get_by_role('button', name='继续初始化办公室').click()
                 expect(panel.get_by_role('link', name='打开角色任务')).to_have_count(8)
                 assert len(tasks) == 8 and len(messages) == 0
+                panel.get_by_role('button', name='更新员工交接协议').click()
+                expect(panel).to_contain_text('请先完成宿主更新')
+                assert len(tasks) == 8 and len(messages) == 0
                 assert run('setup-status', {'brief': True})['values']['testRecipient'] == ''
                 page.screenshot(path=str(SHOTS / 'team-settings.png'), full_page=True)
                 page.reload()

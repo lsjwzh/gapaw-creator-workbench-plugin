@@ -7,6 +7,7 @@ use std::{path::Path, time::Duration};
 use uuid::Uuid;
 
 mod delivery;
+mod role_upgrade;
 
 const ROLES: [(&str, &str, &str); 8] = [
     (
@@ -632,6 +633,7 @@ fn submit(input: &Value, path: &Path) -> Result<Value> {
 }
 pub fn execute(command: &str, input: Value, path: &Path) -> Result<Value> {
     match command {
+        "team-role-upgrade-plan" => role_upgrade::plan(&input, path),
         "delivery-prepare" | "delivery-validate" => delivery::execute(command, input, path),
         "team-workspace" => {
             only_keys(&input, &[], command)?;
