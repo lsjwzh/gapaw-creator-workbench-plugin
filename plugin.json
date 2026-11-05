@@ -107,7 +107,9 @@
     "work-dispatched",
     "work-context",
     "work-submit",
-    "work-cancel"
+    "work-cancel",
+    "delivery-prepare",
+    "delivery-validate"
   ],
   "ui": "ui/index.html",
   "setup": {

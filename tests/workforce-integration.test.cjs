@@ -173,3 +173,43 @@ test('超过首页两百条显示上限后，仍能唤醒较早的待派发工�
   const status = f.run('team-status'); assert.equal(status.items.length, 200); assert.equal(status.wakeWorkId, original.id);
   await f.flow().wake(); assert.equal(f.messages.size, 1); assert.equal(f.claim().item.id, original.id);
 });
+
+async function deliveryFixture(t, products = true) {
+  const f = fixture(t); await f.ready();
+  f.sql('UPDATE creators SET profile=?,settings=? WHERE id=?', [JSON.stringify(products ? { products: '已核验狗用精华', topic: '养犬' } : {}), JSON.stringify({ product_checked: products, fee: 50 }), 'C1']);
+  const w = f.create('selection-delivery', { kind: 'selection' }); f.claim();
+  const ctx = f.run('work-context', { workId: w.id, taskId: f.task('sel') });
+  f.run('work-submit', f.candidate(ctx));
+  const prepare = () => f.run('delivery-prepare', { workId: w.id, taskId: f.task('sel') });
+  const validate = value => f.run('delivery-validate', { contract: value.input.contract, payload: value.input.payload, fromTaskId: f.task('sel'), toTaskId: f.task('copy') });
+  return { ...f, w, prepare, validate };
+}
+
+test('选人交付正文从业务库生成，明确保留缺失条件且不写正式数据', async t => {
+  const f = await deliveryFixture(t), data = f.prepare();
+  assert.equal(data.input.contract.type, 'selection-brief'); assert.equal(data.input.toTaskId, f.task('copy'));
+  assert.equal(data.input.payload.conditions.fee, 50); assert.ok(data.input.payload.missingConditions.includes('commission'));
+  assert.equal(f.validate(data).valid, true); assert.deepEqual(f.prepare(), data);
+  assert.equal(f.sql('SELECT count(*) FROM drafts')[0][0], 0); assert.equal(f.sql('SELECT count(*) FROM messages')[0][0], 0);
+});
+
+test('缺少已核验产品时禁止形成可交付选人资料', async t => {
+  const f = await deliveryFixture(t, false);
+  assert.match(f.fail('delivery-prepare', { workId: f.w.id, taskId: f.task('sel') }), /已核验的适配产品/);
+});
+
+test('交付契约拒绝虚构正文、错误接收角色和未知版本', async t => {
+  const f = await deliveryFixture(t), good = f.prepare();
+  const bad = structuredClone(good); bad.input.payload.conditions.fee = 500;
+  assert.equal(f.validate(bad).valid, false);
+  bad.input = structuredClone(good.input); bad.input.contract.version = 2; assert.equal(f.validate(bad).valid, false);
+  assert.equal(f.run('delivery-validate', { ...good.input, fromTaskId: f.task('sel') }).valid, false);
+  assert.equal(f.run('delivery-validate', { contract: good.input.contract, payload: good.input.payload, fromTaskId: f.task('sel'), toTaskId: f.task('deal') }).valid, false);
+  assert.match(f.fail('delivery-prepare', { workId: f.w.id, taskId: f.task('copy') }), /任务编号/);
+});
+
+test('交付后新来信使原版本校验失败，不能继续验收为最新资料', async t => {
+  const f = await deliveryFixture(t), good = f.prepare(); assert.equal(f.validate(good).valid, true);
+  f.sql("INSERT INTO messages(id,creator,direction,body) VALUES('new-mail','C1','in','条件改变')");
+  const checked = f.validate(good); assert.equal(checked.valid, false); assert.match(checked.issues.join(' '), /业务数据已变化/);
+});
