@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "gapaw-creator-workbench",
   "name": "Gapaw 达人工作台",
-  "version": "0.15.0",
+  "version": "0.15.1",
   "description": "首次引导设置目标、角色提示词与工作约定，完成真实开工检查后由后台时钟流转工单。选人交付经接收角色验收后才准备文案，卡点由老板决定；常规准备继续，邮件不自动外发。",
   "engine": {
     "type": "command",
