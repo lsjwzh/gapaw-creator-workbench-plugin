@@ -103,8 +103,9 @@ def main():
 
                 page.goto(base + 'index.html')
                 expect(page.locator('#note')).to_contain_text('按插件工单')
-                expect(page.locator('.ask', has_text='新来信 @creator_one')).to_be_visible()
-                page.locator('.ask', has_text='新来信 @creator_one').get_by_role('button', name='查看来信').click()
+                page.locator('[data-attention-group=earlier] > summary').click()
+                expect(page.locator('.ask', has_text='待查看来信 @creator_one')).to_be_visible()
+                page.locator('.ask', has_text='待查看来信 @creator_one').get_by_role('button', name='查看来信').click()
                 drawer = page.locator('#drawer')
                 expect(drawer).to_be_visible()
 
@@ -196,7 +197,8 @@ def main():
                 mobile.on('pageerror', lambda e: errors.append(str(e)))
                 mobile.goto(base + 'index.html')
                 expect(mobile.locator('#note')).to_contain_text('按插件工单')
-                mobile.locator('.ask', has_text='新来信 @creator_one').get_by_role('button', name='查看来信').click()
+                mobile.locator('[data-attention-group=earlier] > summary').click()
+                mobile.locator('.ask', has_text='待查看来信 @creator_one').get_by_role('button', name='查看来信').click()
                 expect(mobile.locator('#drawer #compose')).to_be_visible()
                 width = mobile.evaluate('document.documentElement.scrollWidth - document.documentElement.clientWidth')
                 assert width <= 0, width

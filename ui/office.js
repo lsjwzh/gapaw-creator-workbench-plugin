@@ -16,9 +16,11 @@
     openCreator: id => openCreator(id), openOutbox: () => openOutbox(),
     checkMail: () => { const b = doc.getElementById('sync'); return !b.disabled && b.onclick(); },
     refresh: () => refreshOverview(),
+    openWork: id => openWork(id), openSettings: () => { root.location.href = './setup.html'; },
+    openRehearsal: () => { root.location.href = './rehearsal.html'; },
   };
   async function refreshOverview() {
-    try { root.GapawHome.render(await client.run('office-status'), homeActions); }
+    try { const data = await client.run('office-status'); root.GapawHome.render(data, homeActions); if (root.OFFICE?.mode === 'real') root.GapawAttention.render(doc.getElementById('asks'), data, homeActions); }
     catch (e) { root.GapawHome.error(e.message, refreshOverview); }
   }
   async function openWork(id) {
@@ -876,11 +878,7 @@
       : '真实状态：小人按插件工单显示当前工作。点击员工看进展；检查新回复时才会同步邮箱。';
     applyTeam(S.team || { staff: [], items: [] });
     Q.boss.push(...missing, ...(hardOpen ? ['h'] : []), ...usNeg.map(() => 'n'));
-    if (noData) ask('先准备业务数据', '迁入已有达人记录，或建立空白工作台。', { info: true, href: './setup.html', buttons: [['去连接与设置', 'go']] });
-    if (missing.length) ask('连接待设置：' + missing.join('、'), '这些设置影响对应的收发功能；影子工单不依赖测试收件邮箱。', { info: true, href: './setup.html', buttons: [['去连接与设置', 'go']] });
-    if (hardOpen) ask(hardOpen + ' 个数值要你拍板', '首报价、单条上限、佣金、付款节点等，员工只用你明确确认的值。', { info: true, href: './rehearsal.html', buttons: [['去回答', 'go']] });
-    for (const n of usNeg) ask('回复 @' + n.handle, (n.status || '') + (n.theirAsk ? '；对方要 ' + n.theirAsk.slice(0, 40) : ''), { info: true, open: () => openCreator(n.id), buttons: [['查看往来', 'go']] });
-    for (const m of S.newMail || []) ask('新来信 @' + m.handle, (m.subject || '（无主题）') + ' · ' + when(m.at), { info: true, open: () => openCreator(m.id), buttons: [['查看来信', 'go']] });
+    root.GapawAttention.render(asksEl, S, homeActions);
     feed('真实状态：' + EMP.filter(e => C[e.id].state === 'block').length + ' 位受阻，' + EMP.filter(e => C[e.id].state === 'wait').length + ' 位等你');
     const blocked = EMP.filter(e => C[e.id].state === 'block').map(e => C[e.id]);
     const waiting = EMP.filter(e => C[e.id].state === 'wait').map(e => C[e.id]);
@@ -921,6 +919,7 @@
   if (MODE === 'real') $('speed').hidden = true;
   if (!asksEl.children.length) asksEl.innerHTML = '';
   function renderOutboxAsk(counts) {
+    if (MODE === 'real') return; // Real attention cards refresh with the full read model.
     const n = (counts && (counts.sending || 0) + (counts.unknown || 0)) || 0;
     let card = doc.getElementById('outbox-ask-card');
     if (!n) { if (card) card.remove(); return; }

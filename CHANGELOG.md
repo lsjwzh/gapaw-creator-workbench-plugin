@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.15.3
+
+- Search existing candidates by account or creator ID, filter selected and unselected candidates, and retain selections across searches. Show the selected roster and enforce the 20-candidate limit before saving work plans.
+- Group pending correspondence through a read-only Rust query. Prioritize unsettled sends, staff blockers, and unanswered negotiations; separate recent mail from older correspondence without marking historical records as handled.
+- Keep older ordinary correspondence collapsed by default, show five items per group before expansion, and preserve expanded groups when refreshing progress. Include hidden items in the pending total and flag uncertain message dates.
+- Prevent narrow work-planning layouts from overflowing while preserving the existing outbox review and sending safeguards.
+
 ## 0.15.2
 
 - Open a unified work overview with a clear next action, recent live outreach, the last mail synchronization time, and the current sending mode. Keep onboarding available as work planning for both new and existing workspaces.

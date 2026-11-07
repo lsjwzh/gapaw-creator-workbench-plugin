@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "gapaw-creator-workbench",
   "name": "Gapaw 达人工作台",
-  "version": "0.15.2",
+  "version": "0.15.3",
   "description": "从工作总览查看当前进展、下一步和待你决定的事项；最近正式投递、回复与合作确认分别展示。保留像素办公室，通过工作安排核验候选、准备文案，邮件不自动外发。",
   "engine": {
     "type": "command",

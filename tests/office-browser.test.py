@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import threading
 import urllib.parse
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
@@ -32,6 +33,11 @@ def seed(cli, state):
     # C1 有新来信但还没有谈判记录；C2 只有自动回复，不算新来信。
     db.execute("INSERT INTO messages(id,creator,channel,direction,at,subject,body,kind) VALUES('m1','C1','email','in','2026-10-22T09:00:00Z','Re: rates','My rate is $80','正常')")
     db.execute("INSERT INTO messages(id,creator,channel,direction,at,subject,body,kind) VALUES('m2','C2','email','in','2026-10-22T09:00:00Z','Out of office','away','自动回复')")
+    # More than one screen of current mail; original old mail must stay accessible.
+    for i in range(7):
+        db.execute("INSERT INTO creators(id,handle,profile,settings) VALUES(?,?,'{}','{}')", (f'R{i}', f'recent_{i}'))
+        at = (datetime.now(timezone.utc) - timedelta(hours=i + 1)).isoformat()
+        db.execute("INSERT INTO messages(id,creator,direction,at,subject,kind) VALUES(?,?,'in',?,'Current fixture','正常')", (f'recent{i}', f'R{i}', at))
     db.commit()
     db.close()
     # A migrated workspace with real outreach must land on progress even when
@@ -121,11 +127,24 @@ def main():
                 expect(page.locator('.home-steps .done')).to_have_count(1)
                 assert '首次开工' not in page.locator('body').inner_text()
                 page.screenshot(path=str(SHOTS / 'office-home.png'), full_page=True)
+                page.locator('#decisions').screenshot(path=str(SHOTS / 'attention-groups.png'))
                 page.get_by_role('link', name='业务记录').click()
                 expect(page.locator('#business-history')).to_have_attribute('open', '')
                 expect(page.locator('#funnel')).to_contain_text('触达7')
-                expect(page.locator('#funnel')).to_contain_text('回复2')
-                expect(page.locator('#asks')).to_contain_text('新来信 @creator_1')
+                expect(page.locator('#funnel')).to_contain_text('回复9')
+                expect(page.locator('#asks')).to_contain_text('待查看来信 @creator_1')
+                earlier = page.locator('[data-attention-group="earlier"]')
+                expect(earlier).not_to_have_attribute('open', '')
+                expect(page.locator('[data-attention-group="negotiations"] .ask')).to_be_visible()
+                expect(page.locator('[data-attention-group="recent"] > .ask')).to_have_count(5)
+                expect(page.locator('[data-attention-group="recent"] > .ask').first).to_contain_text('@recent_0')
+                page.locator('[data-attention-key="recent-more"] > summary').click()
+                expect(page.locator('.ask', has_text='@recent_6')).to_be_visible()
+                earlier.locator(':scope > summary').click()
+                # A refresh preserves the expanded groups without modifying facts.
+                page.get_by_role('button', name='刷新进度', exact=True).click()
+                expect(page.locator('[data-attention-key="recent-more"]')).to_have_attribute('open', '')
+                expect(earlier).to_have_attribute('open', '')
                 assert 'creator_2' not in page.locator('#asks').inner_text()
                 # 正文只在打开抽屉后显示。
                 assert 'private body text' not in page.content()
@@ -136,7 +155,7 @@ def main():
                 expect(drawer).to_contain_text('private body text')
                 page.keyboard.press('Escape')
                 expect(drawer).to_be_hidden()
-                page.locator('.ask', has_text='新来信 @creator_1').get_by_role('button', name='查看来信').click()
+                page.locator('.ask', has_text='待查看来信 @creator_1').get_by_role('button', name='查看来信').click()
                 expect(drawer).to_contain_text('My rate is $80')
                 drawer.get_by_role('button', name='关闭').click()
                 asks = page.locator('#asks')
