@@ -18,6 +18,7 @@ const CREATOR_KEYS: &[&str] = &[
     "followers",
     "source",
     "notes",
+    "products",
     "sends",
 ];
 const SEND_KEYS: &[&str] = &["channel", "at", "proof", "status", "note"];
@@ -44,6 +45,7 @@ struct IntakeCreator {
     followers: Option<u64>,
     source: String,
     notes: String,
+    products: String,
     sends: Vec<SendFact>,
 }
 
@@ -58,6 +60,7 @@ impl IntakeCreator {
             "followers": self.followers,
             "source": self.source.clone(),
             "notes": self.notes.clone(),
+            "products": self.products.clone(),
             "sends": self.sends.iter().map(|send| json!({
                 "channel": send.channel.clone(),
                 "at": send.at.clone(),
@@ -241,6 +244,10 @@ fn parse_creator(value: &Value) -> Result<IntakeCreator> {
     };
     let source = optional_text(value, "source", 200, "来源说明")?;
     let notes = optional_text(value, "notes", 500, "备注")?;
+    let products = optional_text(value, "products", 500, "目标产品")?;
+    if !products.is_empty() && source.is_empty() {
+        return Err("导入目标产品时必须提供来源说明".into());
+    }
     let sends = match value.get("sends") {
         None | Some(Value::Null) => Vec::new(),
         Some(item) => {
@@ -267,6 +274,7 @@ fn parse_creator(value: &Value) -> Result<IntakeCreator> {
         followers,
         source,
         notes,
+        products,
         sends,
     })
 }
@@ -543,8 +551,12 @@ fn import(input: &Value, path: &Path) -> Result<Value> {
             continue;
         }
         let mut settings = local_store::default_settings();
+        // 外部建档没有提供已确认费用，不能继承旧业务的默认报价。
+        settings["fee"] = Value::Null;
         settings["email"] = json!(creator.email.clone().unwrap_or_default());
-        settings["email_source"] = json!(format!("intake:{batch}"));
+        // 来源保存在 profile 的 source/intake_batch；email_source 只接受 HTTP(S)。
+        settings["email_source"] = json!("");
+        settings["notes"] = json!(creator.notes);
         let profile = json!({
             "id": creator.id,
             "handle": creator.handle,
@@ -552,6 +564,7 @@ fn import(input: &Value, path: &Path) -> Result<Value> {
             "followers": creator.followers,
             "source": creator.source,
             "notes": creator.notes,
+            "products": creator.products,
             "intake_batch": batch,
         });
         tx.execute(
@@ -706,6 +719,57 @@ mod tests {
     }
 
     #[test]
+    fn imported_product_remains_unverified_and_manual_facts_are_usable() {
+        let f = F::new();
+        init(&f);
+        let mut request = body();
+        request["creators"][0]["products"] = json!("Mini Glow");
+        let preview = run_preview(&f, &request);
+        let mut changed = request.clone();
+        changed["creators"][0]["products"] = json!("Full Sweep");
+        assert!(execute(
+            "creator-import",
+            confirmed(&changed, &preview["digest"]),
+            &f.state()
+        )
+        .is_err());
+        execute(
+            "creator-import",
+            confirmed(&request, &preview["digest"]),
+            &f.state(),
+        )
+        .unwrap();
+        let contract = crate::facts::execute(
+            "workbench-fact-contract",
+            json!({"creatorId":"GW301"}),
+            &f.state(),
+        )
+        .unwrap();
+        assert_eq!(contract["settings"]["fee"], Value::Null);
+        assert_eq!(contract["settings"]["product_checked"], false);
+        assert_eq!(contract["settings"]["notes"], "第三轮");
+        let result = crate::facts::execute("edit-settings", json!({
+            "requestId":"intake-followup", "creatorId":"GW301", "expectedSource":contract["expectedSource"],
+            "confirmed":true, "expectedRevision":contract["settingsRevision"],
+            "settings":{"notes":"已按来源核对，费用仍待确认"}, "basis":"人工核对导入来源"
+        }), &f.state()).unwrap();
+        assert_eq!(result["receipt"]["status"], "saved");
+        let db = Connection::open(business(&f)).unwrap();
+        let raw: String = db
+            .query_row("SELECT profile FROM creators WHERE id='GW301'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&raw).unwrap()["products"],
+            "Mini Glow"
+        );
+        let mut no_source = request;
+        no_source["creators"][0]["source"] = json!("");
+        assert!(execute("creator-import-preview", no_source, &f.state()).is_err());
+    }
+
+    #[test]
     fn import_creates_creator_settings_profile_audit_events_and_is_idempotent() {
         let f = F::new();
         init(&f);
@@ -742,8 +806,8 @@ mod tests {
             assert_eq!(profile["intake_batch"], "gw-batch-3");
             let settings: Value = serde_json::from_str(&settings).unwrap();
             assert_eq!(settings["email"], "alpha.one@example.com");
-            assert_eq!(settings["email_source"], "intake:gw-batch-3");
-            assert_eq!(settings["fee"], 50);
+            assert_eq!(settings["email_source"], "");
+            assert_eq!(settings["fee"], Value::Null);
             let audits: i64 = db
                 .query_row(
                     "SELECT count(*) FROM audit WHERE kind='intake' AND creator='GW301'",

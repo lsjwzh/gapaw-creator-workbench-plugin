@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.1
+
+- Keep imported creator fees unset instead of inheriting the legacy campaign price. Preserve source notes in cooperation settings without treating imported data as verified commercial terms.
+- Store optional target products with the import source and include them in preview validation. Product verification remains a separate explicit action.
+- Keep imported email provenance in the source profile and batch record, so manual fact registration remains usable after an import.
+
 ## 0.15.0
 
 - Make guided onboarding the plugin entry page. Save the product goal, existing creator scope and working agreement, review or edit the eight bound role prompts, and check host readiness before starting.
