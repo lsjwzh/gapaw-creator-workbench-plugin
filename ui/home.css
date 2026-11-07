@@ -1,0 +1,22 @@
+/* The existing pixel office remains the visual anchor; the next action leads. */
+.home-overview{position:relative;margin:18px 18px 12px;padding:24px 26px;background:#303c38;border:2px solid #587762;box-shadow:4px 4px 0 #1b1e26;color:#eef1f6}
+.home-layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(260px,1fr);gap:28px;align-items:center}
+.home-overview .home-eyebrow{color:#b3d1ba;font:600 11px/1.5 ui-monospace,monospace;letter-spacing:1px;margin:0 0 10px}
+.home-overview h2{font-size:27px;line-height:1.4;margin:0 0 10px;letter-spacing:.4px}.home-overview h3{font-size:18px;overflow-wrap:anywhere;margin-bottom:8px}
+.home-lead{font-size:14px;line-height:1.8;color:#d3dfd8;max-width:640px;overflow-wrap:anywhere}.home-actions{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 14px}
+.home-overview .home-button{font:inherit;cursor:pointer;border:1px solid #82978a;background:transparent;color:#e1ebe5;padding:7px 12px;min-height:36px;line-height:1.5;text-align:left}
+.home-overview .home-button.primary{background:#c0df97;color:#203426;border:2px solid #1b1e26;box-shadow:3px 3px 0 #1b1e26;font-weight:700;padding:9px 18px}.home-overview button:hover{filter:brightness(1.1)}.home-overview button:disabled{opacity:.55;cursor:wait}
+.home-freshness{font-size:12px;color:#b0c1b7;line-height:1.6;margin-top:8px}.home-mode{font-size:11px;color:#b0c1b7;margin-top:5px}.home-progress{padding:18px 20px;background:#27322f;border:1px solid #52665b;min-width:0}
+.home-status{display:inline-block;padding:2px 7px;background:#4a4230;color:#f3dcb4;font-size:12px}.home-status.good{background:#344c39;color:#d0ebbd}
+.home-steps{display:flex;gap:12px;flex-wrap:wrap;padding:0;margin:16px 0 8px;list-style:none}.home-steps li{font-size:12px;color:#aab5ae;display:flex;gap:5px}.home-steps li.done{color:#d0ebbd}
+.scope-note{font-size:11px;line-height:1.6;color:#a3abbd;margin:0 0 10px}.home-overview .home-refresh{position:absolute;right:10px;top:7px;padding:2px 6px;min-height:24px;border:0;font-size:11px;color:#bdcec3}
+.home-shortcuts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:16px 18px}.home-shortcuts a,.home-shortcuts button{color:#eef1f6;text-decoration:none;background:#323746;border:2px solid #1b1e26;padding:10px 14px;text-align:left;font:inherit;min-width:0;cursor:pointer}.home-shortcuts b{display:block;font-size:13px}.home-shortcuts span{display:block;font-size:11px;color:#a3abbd;margin-top:3px}.home-shortcuts a:hover,.home-shortcuts button:hover{border-color:#91b19a}
+.office-heading{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px}.office-heading h2{font-size:14px}.office-heading span{font-size:11px;color:#a3abbd}
+.business-history{margin-top:18px;padding:12px;background:#2d3240;border:2px solid #1b1e26}.business-history summary{font-weight:600;cursor:pointer}.business-history summary span{font-weight:400;font-size:11px;color:#a3abbd;margin-left:8px}.business-history .funnel{margin-top:12px}
+.demo-menu{position:relative;font-size:12px}.demo-menu summary{cursor:pointer;color:#b5bfcf;padding:5px}.demo-menu .ctrl{position:absolute;right:0;top:100%;z-index:20;min-width:300px;box-shadow:3px 3px 0 #1b1e26}.demo-menu[open] summary{color:#f0b44c}
+#decisions{scroll-margin-top:16px}#decisions:focus{outline:2px solid #c0df97}.top .links a[aria-current]{color:#c0df97;border-color:#698868}
+@media(min-width:1100px){.home-overview,.home-shortcuts,body>.grid,body>.note{max-width:1440px;margin-left:auto;margin-right:auto}.home-overview{width:calc(100% - 36px)}.home-shortcuts{width:calc(100% - 36px)}}
+@media(max-width:780px){.home-layout{grid-template-columns:1fr;gap:18px}.home-overview{padding:24px 16px 16px}.home-overview h2{font-size:23px}.home-shortcuts{grid-template-columns:repeat(2,minmax(0,1fr))}.home-progress{padding:14px}.home-overview .home-refresh{top:4px}.home-steps{margin-top:12px}.demo-menu .ctrl{min-width:260px}.home-overview,.home-shortcuts{margin-left:10px;margin-right:10px}}
+@media(prefers-reduced-motion:reduce){.bub,.tag i,.feed li,.ask{animation:none!important}}
+
+.card a{color:#c9dfce;text-underline-offset:3px}.card a:hover{color:#e8f3e9}.home-overview :focus-visible,.home-shortcuts :focus-visible,.top :focus-visible{outline:2px solid #e5efb0;outline-offset:3px}

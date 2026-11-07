@@ -1,6 +1,8 @@
 # 达人工作台插件独立项目
 
-0.15.0：正式入口改为游戏式开工引导。先确定产品目标、市场、筛选要求和本轮已有候选（1–20 位），再逐位认识并修改真实角色提示词、确认工作约定。开工检查通过并点击开工后，宿主每分钟核对真实队列，关闭页面仍可继续；员工遇到卡点再找老板，其他工单继续。
+0.15.2：统一从工作总览进入，先看当前进展、下一步和待你决定的事项。最近正式投递、真人回复与合作确认分别展示，同时标明收信更新时间和测试／正式模式；像素办公室保留，历史累计折叠，模拟动画放入使用演示。
+
+需要启动新一轮工作时，从「安排新工作」确定产品目标、市场、筛选要求和本轮已有候选（1–20 位），审阅真实角色提示词并确认工作约定。开工检查通过并点击开工后，宿主每分钟核对真实队列，关闭页面仍可继续；员工遇到卡点再找老板，其他工单继续。
 
 目前自动链路为「已有候选复核 → 宿主交付与文案验收 → 文案工单 → 草稿候选」。不自动发现新平台候选、不正式采用、不发送邮件；其余角色已可认识与配置，但本版不会自动启动它们的业务流程。MultiCC 配套交付接口未上线时明确显示缺项并禁止开工，安装插件本身不会启动员工或登记时钟。
 
@@ -11,7 +13,7 @@
 
 ## 业务与数据
 
-页面只有三个：首页像素办公室（`ui/index.html` + `ui/office.js`）、连接与设置（`ui/setup.html`）、影子演练（`ui/rehearsal.html`）；共用请求与 MultiCC 任务派发在 `ui/client.js`。
+插件统一从工作总览（`ui/index.html`）进入，优先显示最近正式投递、下一步与收信更新时间，下面保留像素办公室。工作安排（`ui/onboarding.html`）、连接与设置（`ui/setup.html`）与影子演练（`ui/rehearsal.html`）是独立功能入口；共用请求与 MultiCC 任务派发在 `ui/client.js`。
 
 插件持久目录默认是 `~/.multicc/plugins-data/gapaw-creator-workbench/`：
 
@@ -84,7 +86,7 @@ MultiCC 随包分发的浏览器隔离插件自 1.6.4 起内置公开页面接�
 
 名单先按契约保存版本；身份未知可保留候选，不能采用为正式档案。采用只新增档案或更新选人资料快照，保留人工设置与已发生事实，重复同版跳过。工作台档案显示来源、指标时窗及缺失项。所有发布验收中的 AI 回答和平台资料均使用合成接口；不代表真实模型采集或自动登录检测已验收。
 
-首页（`ui/index.html`）是像素办公室：7 位 AI 员工按工作流排布，真实状态来自只读命令 `office-status`（Rust），显示谁因设置缺失受阻、谁在等演练回答、哪些谈判与新来信等你处理；点卡片用 `office-creator` 打开达人抽屉查看往来；“立即同步邮件”调用 `mail-sync`；“模拟一天”只改页面显示，不发送、不改数据。
+首页（`ui/index.html`）先显示业务进度，再呈现像素办公室：7 位 AI 员工按工作流排布，真实状态来自只读命令 `office-status`（Rust），显示谁因设置缺失受阻、谁在等演练回答、哪些谈判与新来信等你处理；点卡片用 `office-creator` 打开达人抽屉查看往来；“立即同步邮件”调用 `mail-sync`；“模拟一天”只改页面显示，不发送、不改数据。
 
 ## 办公室与角色任务（0.14.0）
 
@@ -95,3 +97,7 @@ MultiCC 随包分发的浏览器隔离插件自 1.6.4 起内置公开页面接�
 工单协议：`work-create`、`work-next`、`work-dispatched`、`work-context`、`work-submit`、`work-get`、`work-list`、`work-cancel`。流转器和员工都从插件重新读取状态；角色提示词内附有命令和交回格式。跨进程领取、派发回执和交回结果保存在业务库，测试邮箱配置不阻塞影子工单。
 
 本切片通过任务编号校验逻辑归属，但不提供宿主任务之间的权限沙箱；受信任的宿主工具仍有全局能力。任务执行状态需回原任务查看，工单的「处理中」是员工最近读取上下文后的记账状态。手工工单的积压可在刷新工单后再次手动唤醒；开工引导队列由专属时钟核对。正式采用、新来信自动触发和按动作放权仍待后续切片。
+
+### Homepage progress
+
+The plugin opens `ui/index.html` for both new and existing workspaces. `ui/home.js` presents the Rust `office-status` snapshot without starting work, synchronizing mail, or sending messages on page load. Recent outreach excludes test mail and cancelled drafts. Delivery, subsequent inbound mail, and recorded cooperation remain separate facts. Missing sync history is shown explicitly; local records are not presented as a live inbox check. The setup wizard remains available under work planning, and demonstrations are separate from real progress.

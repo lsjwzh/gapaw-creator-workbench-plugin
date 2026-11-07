@@ -5,13 +5,22 @@
   const client = App.createClient(root.fetch.bind(root));
   const doc = root.document;
   // ---------- 发件箱与达人抽屉 ----------
-  const STATUS_TEXT = { draft: '待发送', sending: '发送中', unknown: '结果待核对', accepted: '平台已受理', delivered: '已投递', bounced: '退信', blocked: '被拦截', cancelled: '已撤回' };
+  const STATUS_TEXT = { draft: '待发送', sending: '发送中', unknown: '结果待核对', accepted: '已发出，送达待核对', delivered: '已送达', bounced: '退信', blocked: '被拦截', cancelled: '已撤回' };
   const CHECKABLE = ['sending', 'unknown', 'accepted', 'delivered'];
   const node = (tag, text, cls) => { const n = doc.createElement(tag); if (text != null) n.textContent = String(text); if (cls) n.className = cls; return n; };
   const when = v => { const d = new Date(v); return v && !Number.isNaN(d.getTime()) ? d.toLocaleString('zh-CN', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''; };
   const uuid = () => { try { if (root.crypto && typeof root.crypto.randomUUID === 'function') return root.crypto.randomUUID(); } catch (_) { /* 旧浏览器退回随机编号 */ } return 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12); };
   const teamFlow = root.GapawTeam.controller(client);
   let teamData = null;
+  const homeActions = {
+    openCreator: id => openCreator(id), openOutbox: () => openOutbox(),
+    checkMail: () => { const b = doc.getElementById('sync'); return !b.disabled && b.onclick(); },
+    refresh: () => refreshOverview(),
+  };
+  async function refreshOverview() {
+    try { root.GapawHome.render(await client.run('office-status'), homeActions); }
+    catch (e) { root.GapawHome.error(e.message, refreshOverview); }
+  }
   async function openWork(id) {
     const box = drawer(); box.hidden = false;
     const close = node('button', '关闭', 'alt'); close.onclick = () => { box.hidden = true; };
@@ -39,7 +48,7 @@
   function renderTeam(data) {
     teamData = data;
     const host = doc.getElementById('team-summary'); if (!host) return;
-    host.replaceChildren(node('p', data.initialized ? '流转器和 7 个员工角色任务已创建；定时唤醒未开启。' : '角色任务尚未全部创建。办公室小人的状态以工单记录为准。', 'muted'));
+    host.replaceChildren(node('p', data.initialized ? '团队已配置。下面是已有工作的进展。' : '团队还未配置完成，可先查看已有业务记录。', 'muted'));
     const settings = node('a', data.initialized ? '查看角色任务与配置' : '去配置并初始化办公室'); settings.href = './setup.html#team-panel'; host.append(settings);
     const items = data.items || [];
     if (data.initialized) {
@@ -49,7 +58,7 @@
       host.append(wake, msg);
     }
     const refresh = node('button', '刷新工单', 'alt'); refresh.onclick = async () => { refresh.disabled = true; try { await refreshTeam(); } catch (e) { host.append(node('p', e.message)); refresh.disabled = false; } }; host.append(refresh);
-    if (!items.length) host.append(node('p', '还没有工单。打开达人的往来记录，可以创建影子工单。', 'muted'));
+    if (!items.length) host.append(node('p', '目前没有交给团队的新工作。已有邮件和往来记录仍可查看。', 'muted'));
     for (const w of items.slice(0, 12)) {
       const b = node('button', (root.GapawTeam.LABEL[w.staffKey] || '员工') + ' · ' + (root.GapawTeam.STATES[w.state] || w.state), 'alt');
       b.style.display = 'block'; b.onclick = () => openWork(w.id); host.append(b);
@@ -864,7 +873,7 @@
     $('note').className = 'note real';
     $('note').textContent = noData
       ? '真实状态：还没有业务数据，请先在连接与设置中准备数据。'
-      : '真实状态：小人按插件工单显示工作情况。角色任务创建不代表正在执行；候选交回后仍等你确认。邮件同步和外发由页面上的明确操作触发。';
+      : '真实状态：小人按插件工单显示当前工作。点击员工看进展；检查新回复时才会同步邮箱。';
     applyTeam(S.team || { staff: [], items: [] });
     Q.boss.push(...missing, ...(hardOpen ? ['h'] : []), ...usNeg.map(() => 'n'));
     if (noData) ask('先准备业务数据', '迁入已有达人记录，或建立空白工作台。', { info: true, href: './setup.html', buttons: [['去连接与设置', 'go']] });
@@ -897,7 +906,7 @@
       const active = jobs.find(w => w.state === 'processing'), review = jobs.find(w => w.state === 'awaiting_review'), stale = jobs.find(w => w.state === 'stale');
       const pending = jobs.find(w => ['pending', 'claimed', 'dispatched'].includes(w.state));
       ch.state = !task ? 'block' : active ? 'work' : review ? 'wait' : stale ? 'block' : 'idle';
-      ch.task = !task ? '角色任务尚未创建' : active ? '工单处理中：' + active.id : review ? '候选已交回，等你确认' : stale ? '工单依据已过期，需要重新准备' : pending ? '工单等待宿主处理' : '角色任务已创建，等待工单';
+      ch.task = !task ? '还需要配置这位员工' : active ? '正在处理交给我的工作' : review ? '建议已准备好，等待审阅' : stale ? '资料有变化，需要重新核对' : pending ? '工作已排队，等待开始' : '暂时没有新工作';
       Q[e.id] = jobs.filter(w => ['pending', 'claimed', 'dispatched', 'processing'].includes(w.state));
     }
     who();
@@ -905,6 +914,7 @@
 
   // ---------- 控件 ----------
   $('v-demo').setAttribute('aria-pressed', MODE === 'demo'); $('v-real').setAttribute('aria-pressed', MODE === 'real');
+  $('demo-menu').open = MODE === 'demo';
   $('v-demo').onclick = () => { location.hash = 'mode=demo'; location.reload(); };
   $('v-real').onclick = () => { location.hash = ''; location.reload(); };
   $('speed').onclick = () => { speed = speed === 2 ? 4 : speed === 4 ? 1 : 2; $('speed').textContent = speed + '×'; };
@@ -934,7 +944,7 @@
   window.OFFICE = {
     speed: v => { speed = v; $('speed').textContent = v + '×'; }, pending: () => askOpen, time: () => simMin, mode: MODE,
     sent: () => { fly({ x: 300, y: 150 }, { x: 45, y: 66 }, 1.3); feed('发件箱：寄出一封邮件', 'ok'); },
-    updateOutbox: renderOutboxAsk,
+    updateOutbox: counts => { renderOutboxAsk(counts); refreshOverview(); },
     updateTeam: applyTeam,
   };
   requestAnimationFrame(t => { last = t; frame(t); });
@@ -949,6 +959,7 @@
         const n = (r.imported || []).length, f = r.folders || {};
         note.className = 'note real';
         note.textContent = '邮件同步完成：新增收件 ' + (f.inbox?.new || 0) + ' 封、发件 ' + (f.sent?.new || 0) + ' 封；未匹配达人 ' + (r.unmatched || 0) + ' 封（只计数，不建档）。' + (n ? '正在刷新…' : '');
+        await refreshOverview();
         if (n) setTimeout(() => root.location.reload(), 1200);
       } catch (e) {
         note.className = 'note real';
@@ -959,19 +970,24 @@
   async function boot() {
     syncButton();
     const outboxBtn = doc.getElementById('outbox-btn'); if (outboxBtn) outboxBtn.onclick = openOutbox;
+    doc.getElementById('home-outbox').onclick = openOutbox;
     const note = root.document.getElementById('note');
     try {
       const data = await client.run('office-status');
+      root.GapawHome.render(data, homeActions);
       start(data);
       renderTeam(data.team || { initialized: false, staff: [], items: [] });
       if (root.location.hash === '#outbox') await openOutbox();
+      if (root.location.hash === '#business-history') doc.getElementById('business-history').open = true;
     } catch (e) {
+      root.GapawHome.error(e.message || '请稍后重试', () => root.location.reload());
       note.className = 'note real';
       note.textContent = '读取工作台数据失败：' + (e && e.message || '未知原因') + ' 可以刷新重试，或先进入“工作台”。';
     }
   }
   root.addEventListener('hashchange', () => {
     if (root.location.hash === '#outbox') openOutbox();
+    if (root.location.hash === '#business-history') doc.getElementById('business-history').open = true;
   });
   if (root.document.readyState === 'loading') root.document.addEventListener('DOMContentLoaded', boot); else boot();
 })(window);

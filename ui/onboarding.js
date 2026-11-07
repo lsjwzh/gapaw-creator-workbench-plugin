@@ -26,15 +26,16 @@
     $('journal-count').textContent=data.history.length;$('settings-btn').hidden=!cfg.completed;$('setup-steps').hidden=!!cfg.completed;$('live-badge').hidden=!cfg.completed;
     $('live-badge').textContent=cfg.running?'已允许团队运行':'已暂停领取新工作';
     const index={welcome:0,mission:0,roles:1,rules:2,preflight:3,runtime:4,blocker:4}[phase];document.querySelectorAll('.steps li').forEach((li,i)=>{li.className=i===index?'active':i<index?'done':'';li.toggleAttribute('aria-current',i===index);});
-    $('ready-count').textContent=cfg.completed?'工作约定版本 '+cfg.revision:'已逐个确认 '+(reviewed?.length||0)+' / 8 位';
+    $('ready-count').textContent=cfg.completed?'工作约定版本 '+cfg.revision:phase==='roles'?'已逐个确认 '+(reviewed?.length||0)+' / 8 位':data.team.initialized?'已有团队 · 设置下一轮工作':'准备你的运营团队';
     const titles={welcome:'第一次开工，先把团队准备好。',mission:'先告诉大家，要做成什么。',roles:'认识伙伴，约定工作方式。',rules:'这些事，交给团队自己推进。',preflight:'核对准备情况，再开始运行。',runtime:'团队在工作，你掌握方向。',blocker:'这件事，需要老板决定。'};
-    $('scene-title').textContent=phase==='runtime'&&!cfg.running?'办公室已暂停，你可以随时调整。':titles[phase];$('speech-tag').textContent=cfg.completed?'真实运行状态':'开工设置';$('room-label').textContent=cfg.completed?'工作室 · 当前状态':'工作室 · 首次开工';
+    if(phase==='welcome'&&data.creators.length)titles.welcome='已有业务，接着安排下一轮。';
+    $('scene-title').textContent=phase==='runtime'&&!cfg.running?'办公室已暂停，你可以随时调整。':titles[phase];$('speech-tag').textContent=cfg.completed?'真实运行状态':'开工设置';$('room-label').textContent=cfg.completed?'工作室 · 当前状态':'工作室 · 安排工作';
     $('scene-caption').textContent=stateForScene().blocked?'员工带着卡点来找你；未受影响的工单继续。':cfg.running?'工单由宿主后台时钟调度，进展以实际回执为准。':cfg.completed?'已暂停新工作；运行中的员工仍可交回结果。':'先对齐目标和规则，确认后再开工。';
     $('desk-note').textContent='交回候选、接收员工验收、正式采用分别记账。待补资料的部分会保持未完成。';
     ORDER.forEach(k=>{$('pin-'+k)?.classList.toggle('active',k===active);$('mini-'+k)?.classList.toggle('ready',reviewed?.includes(k)||cfg.completed);});scene?.portrait(active);
     if(!data.team.initialized){d.append(el('h3','先把办公室和员工准备好。'),summary('请在连接与设置中选定模型、线路和运营目录，初始化流转器与七位员工。已有配置会继续使用。'),link('去连接与设置','./setup.html#team-panel'));return;}
     if(phase==='welcome'){
-      d.append(el('p','首次完成一次，以后直接进办公室','eyebrow'),el('h3','老板，先定好工作约定。'),summary('先选定本轮目标与已有候选，认识角色、调整提示词，再核对开工条件。团队会按约定准备候选和草稿，遇到缺资料或条件冲突才来找你。'),el('p','当前接通已有候选复核与文案准备。新平台发现和真实外发另行处理。','detail'));
+      d.append(el('p','已有业务可随时从工作总览查看','eyebrow'),el('h3','安排接下来要做的工作。'),summary('先选定本轮目标与已有候选，认识角色、调整提示词，再核对开工条件。团队会按约定准备候选和草稿，遇到缺资料或条件冲突才来找你。'),el('p','当前接通已有候选复核与文案准备。新平台发现和真实外发另行处理。','detail'));
       a.append(button('开始开工设置',()=>{prepareEdit();return go('mission');},true));
     }else if(phase==='mission')renderMission(d,a);
     else if(phase==='roles')renderRoles(d,a);
@@ -76,7 +77,7 @@
   }
   function modal(title,build){returnFocus=document.activeElement;$('modal-title').textContent=title;$('modal-body').replaceChildren();build($('modal-body'));$('modal').hidden=false;document.body.style.overflow='hidden';$('modal-close').focus();}
   function close(){if(busy)return;$('modal').hidden=true;document.body.style.overflow='';editing=false;returnFocus?.isConnected&&returnFocus.focus();}
-  function showWork(w){modal('交回候选 · '+(LABEL[w.staffKey]||''),body=>{for(const s of w.submissions){body.append(summary(s.result.summary));const ul=el('ul');s.result.evidence.forEach(x=>ul.append(el('li',x)));body.append(ul);if(s.result.draft)body.append(el('h3',s.result.draft.subject),el('pre',s.result.draft.body,'prompt-preview'));}body.append(link('打开达人业务台账','./index.html'));});}
+  function showWork(w){modal('交回候选 · '+(LABEL[w.staffKey]||''),body=>{for(const s of w.submissions){body.append(summary(s.result.summary));const ul=el('ul');s.result.evidence.forEach(x=>ul.append(el('li',x)));body.append(ul);if(s.result.draft)body.append(el('h3',s.result.draft.subject),el('pre',s.result.draft.body,'prompt-preview'));}body.append(link('返回工作总览','./index.html'));});}
   async function openSettings(){editing=true;const draft=clone(data.config.values),expected=data.config.revision;modal('随时调整工作约定',body=>{body.append(el('p','保存后，依赖旧约定的候选重新核验；历史记录保留。','detail'));missionFields(body,'edit-',draft);ruleFields(body,'edit-',draft);candidates(body,draft);const row=el('div',null,'actions');row.append(button('取消',()=>{busy=false;close();}),button('保存并用于后续工作',async()=>{data=await call('save',{requestId:crypto.randomUUID(),expectedRevision:expected,step:'preflight',values:draft,reviewedRoles:data.config.reviewedRoles||[]});$('modal').hidden=true;document.body.style.overflow='';editing=false;phase='runtime';render();},true));body.append(row,el('p','角色提示词可点击办公室里的员工进行调整。','detail'));});}
   async function selectRole(key){if(phase==='roles'){roleIndex=ORDER.indexOf(key);render();return;}await act(async()=>{await loadRoles();const r=roles.find(r=>r.key===key);editing=true;modal(r.name+' · 工作方式',body=>{body.append(summary(r.description),link('打开原角色任务',r.task.url));const input=field(body,'edit-role-prompt','角色提示词',r.prompt,{multiline:true});body.append(button('保存到真实角色任务',async()=>{await call('role-save',{staffKey:r.key,expectedVersion:r.version,prompt:input.value});$('modal').hidden=true;document.body.style.overflow='';editing=false;await refresh();},true));});});}
   function journal(){modal('老板的手册',body=>{const ol=el('ol');for(const h of data.history){const li=el('li');li.append(el('strong',h.title),el('p',new Date(h.at).toLocaleString(),'detail'),el('pre',typeof h.body==='string'?h.body:JSON.stringify(h.body,null,2),'prompt-preview'));ol.append(li);}body.append(ol);});}

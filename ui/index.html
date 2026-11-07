@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gapaw 达人工作室</title>
+<link rel="stylesheet" href="./home.css">
 <style>
 :root{--bg:#262a35;--panel:#323746;--panel2:#3b4153;--ink:#eef1f6;--muted:#a3abbd;--line:#4a5164;--green:#5fbf7f;--amber:#f0b44c;--red:#e5654f;--paper:#fffdf4}
 *{box-sizing:border-box}
@@ -133,32 +134,39 @@ details summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:5px}
 <body>
 <header class="top">
   <h1><i></i>Gapaw 达人工作室</h1>
-  <div class="funnel" id="funnel"></div>
-  <nav class="links" aria-label="其他页面"><a href="./setup.html">连接与设置</a><a href="./onboarding.html">开工与运行</a></nav>
+  <nav class="links" aria-label="工作台导航"><a href="./index.html" aria-current="page">工作总览</a><a href="./onboarding.html">安排新工作</a><a href="./setup.html">连接与设置</a></nav>
   <span class="spacer"></span>
   <div class="clock px" id="clock">09:00</div>
   <div class="ctrl" role="group" aria-label="查看方式">
-    <button id="outbox-btn" title="查看全部发件记录">发件箱<span class="outbox-badge" id="outbox-badge" hidden></span></button><button id="sync" title="从飞书邮箱同步与达人的往来邮件">✉ 立即同步邮件</button><button id="v-real" aria-pressed="true">真实状态</button><button id="v-demo" aria-pressed="false">▶ 模拟一天</button><button id="speed" title="切换速度">2×</button>
+    <button id="outbox-btn" title="查看全部发件记录">邮件记录<span class="outbox-badge" id="outbox-badge" hidden></span></button><button id="sync" title="从飞书邮箱同步与达人的往来邮件">检查新回复</button>
   </div>
+  <details class="demo-menu" id="demo-menu"><summary>使用演示</summary><div class="ctrl" role="group" aria-label="查看方式"><button id="v-real" aria-pressed="true">返回真实业务</button><button id="v-demo" aria-pressed="false">▶ 模拟一天</button><button id="speed" title="切换速度">2×</button></div></details>
 </header>
+<section class="home-overview" id="home-overview" aria-labelledby="home-title" aria-busy="true">
+  <p class="home-eyebrow">工作总览</p><h2 id="home-title">正在读取你的工作进展…</h2>
+  <p class="home-lead">读取已有业务后，这里会显示下一步。</p>
+</section>
+<nav class="home-shortcuts" aria-label="业务入口"><a href="./onboarding.html"><b>安排新工作</b><span>选候选 · 团队分工</span></a><button id="home-outbox"><b>审阅与发信</b><span>草稿 · 投递记录</span></button><a href="#decisions"><b>处理回复</b><span>往来消息 · 报价</span></a><a href="#business-history"><b>业务记录</b><span>累计进展 · 联系记录</span></a></nav>
 <p class="note" id="note">正在读取工作台数据…</p>
 <main class="grid">
   <section>
+    <div class="office-heading"><h2>团队办公室</h2><span>点击员工查看当前工作</span></div>
     <div class="stage" id="stage">
       <canvas id="scene" width="384" height="216" aria-label="像素办公室：AI 员工的工作情况"></canvas>
       <div id="overlay"></div>
     </div>
-    <div class="cal" id="cal" aria-label="工作安排日历"></div>
+    <details class="business-history" id="business-history"><summary>全部业务记录 <span>含历史迁入数据</span></summary><div class="funnel" id="funnel"></div><div class="cal" id="cal" aria-label="工作记录日历"></div></details>
   </section>
   <aside class="side">
-    <section class="card"><h2>办公室任务</h2><div id="team-summary"></div></section>
-    <section class="card"><h2>老板桌 · 等你处理 <small id="ask-n"></small></h2><div id="asks"></div></section>
+    <section class="card" id="decisions" tabindex="-1"><h2>需要你处理 <small id="ask-n"></small></h2><p class="scope-note">按本地记录汇总，包含历史往来</p><div id="asks"></div></section>
+    <section class="card"><h2>团队正在推进</h2><div id="team-summary"></div></section>
     <section class="card"><h2>工作动态 <small id="feed-n"></small></h2><ol class="feed" id="feed"></ol></section>
     <section class="card who" id="who"><h2>员工档案 <small>点办公室里的小人</small></h2><div id="who-body"></div></section>
   </aside>
 </main>
 <script src="./client.js"></script>
 <script src="./team.js"></script>
+<script src="./home.js"></script>
 <script src="./office.js"></script>
 </body>
 </html>

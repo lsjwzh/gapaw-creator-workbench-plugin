@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.15.2
+
+- Open a unified work overview with a clear next action, recent live outreach, the last mail synchronization time, and the current sending mode. Keep onboarding available as work planning for both new and existing workspaces.
+- Summarize recent live mail through a read-only Rust query. Distinguish delivery, subsequent human replies, and recorded cooperation; exclude test mail and cancelled drafts from recent outreach.
+- Keep the pixel office and add direct access to work planning, email review, replies, and business history. Collapse historical totals and move sample animations into a separate demonstration menu.
+- Handle missing data and loading errors explicitly, preserve mobile layouts, and keep page loading free of automatic mail synchronization, sending, or work dispatch.
+
 ## 0.15.1
 
 - Keep imported creator fees unset instead of inheriting the legacy campaign price. Preserve source notes in cooperation settings without treating imported data as verified commercial terms.

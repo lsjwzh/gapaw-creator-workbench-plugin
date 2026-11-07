@@ -25,6 +25,35 @@ fn event_key(kind: &str) -> Option<&'static str> {
     })
 }
 
+/// A compact, local snapshot of recent real outreach. Test mail and mail bodies
+/// are deliberately excluded; an absent reply is not a live inbox check.
+fn recent_outreach(db: &Connection) -> rusqlite::Result<Vec<Value>> {
+    if !crate::outbox::has_table(db) {
+        return Ok(vec![]);
+    }
+    let mut st = db.prepare(
+        "SELECT o.id,o.creator,c.handle,o.state,coalesce(nullif(o.sent_at,''),o.attempt_at),
+         (SELECT m.at FROM messages m WHERE m.creator=o.creator AND m.channel='email'
+          AND m.direction='in' AND coalesce(m.kind,'')<>'自动回复'
+          AND julianday(m.at)>julianday(coalesce(nullif(o.sent_at,''),o.attempt_at))
+          ORDER BY julianday(m.at) DESC LIMIT 1),
+         EXISTS(SELECT 1 FROM events e WHERE e.creator=o.creator AND e.type='确认合作'
+                AND coalesce(e.void_reason,'')='')
+         FROM outbox o LEFT JOIN creators c ON c.id=o.creator
+         WHERE o.mode='live' AND o.state IN ('sending','unknown','accepted','delivered','bounced','blocked')
+         ORDER BY julianday(coalesce(nullif(o.sent_at,''),o.attempt_at)) DESC,o.id LIMIT 3",
+    )?;
+    let rows = st.query_map([], |r| {
+        Ok(
+            json!({"id":r.get::<_,String>(0)?,"creatorId":r.get::<_,String>(1)?,
+            "handle":r.get::<_,Option<String>>(2)?,"state":r.get::<_,String>(3)?,
+            "sentAt":r.get::<_,Option<String>>(4)?,"replyAt":r.get::<_,Option<String>>(5)?,
+            "cooperationConfirmed":r.get::<_,bool>(6)?}),
+        )
+    })?;
+    rows.collect()
+}
+
 fn business(path: &Path) -> rusqlite::Result<Value> {
     let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let mut days: BTreeMap<String, Map<String, Value>> = BTreeMap::new();
@@ -163,7 +192,8 @@ fn business(path: &Path) -> rusqlite::Result<Value> {
         "negotiations": negotiations,
         "silent": silent,
         "silentTotal": contacted.difference(&replied).count(),
-        "outbox": crate::outbox::counts(&db).unwrap_or_else(|_| json!({}))
+        "outbox": crate::outbox::counts(&db).unwrap_or_else(|_| json!({})),
+        "recentOutreach": recent_outreach(&db)?
     }))
 }
 
@@ -194,6 +224,9 @@ fn setup(path: &Path) -> Value {
         Ok(s) => json!({
             "available": true,
             "mode": s["values"]["mode"].as_str().unwrap_or("test"),
+            "mailSyncReady": s["features"]["mailSync"]["ready"] == true,
+            "syncEnabled": s["values"]["sync"]["enabled"] == true,
+            "lastSyncAt": s["mailSync"]["lastRunAt"],
             "items": s["items"].as_array().map(|v| v.iter().map(|i| json!({"id":i["id"],"title":i["title"],"state":i["state"],"summary":i["summary"]})).collect::<Vec<_>>()).unwrap_or_default()
         }),
         Err(e) => json!({"available": false, "error": e, "mode": "test", "items": []}),
@@ -207,7 +240,7 @@ fn status(path: &Path) -> Result<Value> {
         business(&bp).map_err(|_| "读取本地工作台失败，请稍后重试")?
     } else {
         json!({"days":{}, "funnel":{"creators":0,"contacted":0,"replied":0,"interested":0,"negotiating":0,"confirmed":0},
-               "negotiations":[], "silent":[], "silentTotal":0, "newMail":[], "outbox":{}})
+               "negotiations":[], "silent":[], "silentTotal":0, "newMail":[], "outbox":{}, "recentOutreach":[]})
     };
     out["workbench"] = json!({"initialized": local["initialized"], "active": local["active"]});
     out["rehearsal"] = rehearsal(path);
@@ -339,6 +372,52 @@ mod tests {
         assert_eq!(r["silent"], json!([]));
         assert!(!f.root.join("workbench.sqlite").exists());
         assert!(execute("office-status", json!({"x":1}), &f.state()).is_err());
+    }
+
+    #[test]
+    fn recent_outreach_excludes_tests_and_requires_actual_reply_and_confirmation() {
+        let f = F::new();
+        execute_init(&f);
+        let bp = crate::local_backend::business_path(&f.state()).unwrap();
+        let db = Connection::open(&bp).unwrap();
+        db.execute("INSERT INTO creators(id,handle,profile,settings) VALUES('c1','fixture_creator','{}','{}')", []).unwrap();
+        assert_eq!(recent_outreach(&db).unwrap(), Vec::<Value>::new());
+        for (key, mode, state, at) in [
+            ("real", "live", "delivered", "2026-11-07T04:45:30Z"),
+            ("test", "test", "delivered", "2026-11-08T04:45:30Z"),
+            ("cancelled", "live", "cancelled", "2026-11-09T04:45:30Z"),
+        ] {
+            let r = crate::outbox::execute("outbox-save", json!({"clientId":key,"creatorId":"c1","subject":"private subject","body":"private body","asReply":false}), &f.state()).unwrap();
+            db.execute(
+                "UPDATE outbox SET mode=?,state=?,sent_at=? WHERE id=?",
+                [mode, state, at, r["id"].as_str().unwrap()],
+            )
+            .unwrap();
+        }
+        db.execute("INSERT INTO messages(id,creator,channel,direction,at,kind) VALUES('old','c1','email','in','2026-11-07T03:00:00Z','正常'),('auto','c1','email','in','2026-11-07T06:00:00Z','自动回复')", []).unwrap();
+        db.execute("INSERT INTO events(id,creator,type,void_reason) VALUES('void','c1','确认合作','录错了')", []).unwrap();
+        let before = fs::read(&bp).unwrap();
+        let rows = recent_outreach(&db).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["state"], "delivered");
+        assert!(rows[0]["replyAt"].is_null());
+        assert_eq!(rows[0]["cooperationConfirmed"], false);
+        assert!(!json!(rows).to_string().contains("private"));
+        assert_eq!(fs::read(&bp).unwrap(), before);
+        // Equivalent timestamps with different offsets must compare chronologically.
+        db.execute("INSERT INTO messages(id,creator,channel,direction,at,kind) VALUES('reply','c1','email','in','2026-11-07T13:00:00+08:00','正常')", []).unwrap();
+        let rows = recent_outreach(&db).unwrap();
+        assert_eq!(rows[0]["replyAt"], "2026-11-07T13:00:00+08:00");
+        assert_eq!(rows[0]["cooperationConfirmed"], false);
+        db.execute(
+            "INSERT INTO events(id,creator,type) VALUES('confirmed','c1','确认合作')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            recent_outreach(&db).unwrap()[0]["cooperationConfirmed"],
+            true
+        );
     }
 
     #[test]

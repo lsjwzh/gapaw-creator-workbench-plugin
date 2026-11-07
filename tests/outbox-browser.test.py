@@ -135,8 +135,8 @@ def main():
                 # 连点两次确认只应发送一次。
                 page.evaluate("const b=document.getElementById('confirm-send'); b.click(); b.click();")
                 expect(page.locator('#confirm')).to_have_count(0)
-                expect(drawer).to_contain_text('已投递')
-                expect(drawer.locator('.ob-state')).to_contain_text('已投递')
+                expect(drawer).to_contain_text('已送达')
+                expect(drawer.locator('.ob-state')).to_contain_text('已送达')
                 assert draft_sends() == 1, draft_sends()
                 assert page.evaluate('window.__xss') is None
                 assert page.evaluate("document.querySelectorAll('#drawer img').length") == 0
