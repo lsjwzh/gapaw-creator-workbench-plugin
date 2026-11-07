@@ -158,7 +158,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:5px}
     <details class="business-history" id="business-history"><summary>全部业务记录 <span>含历史迁入数据</span></summary><div class="funnel" id="funnel"></div><div class="cal" id="cal" aria-label="工作记录日历"></div></details>
   </section>
   <aside class="side">
-    <section class="card" id="decisions" tabindex="-1"><h2>需要你处理 <small id="ask-n"></small></h2><p class="scope-note">按本地记录汇总，包含历史往来</p><div id="asks"></div></section>
+    <section class="card" id="decisions" tabindex="-1"><h2>需要你处理 <small id="ask-n"></small></h2><p class="scope-note">按事项与最后来信时间分组，包含历史往来</p><div id="asks"></div></section>
     <section class="card"><h2>团队正在推进</h2><div id="team-summary"></div></section>
     <section class="card"><h2>工作动态 <small id="feed-n"></small></h2><ol class="feed" id="feed"></ol></section>
     <section class="card who" id="who"><h2>员工档案 <small>点办公室里的小人</small></h2><div id="who-body"></div></section>
@@ -167,6 +167,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:5px}
 <script src="./client.js"></script>
 <script src="./team.js"></script>
 <script src="./home.js"></script>
+<script src="./attention.js"></script>
 <script src="./office.js"></script>
 </body>
 </html>

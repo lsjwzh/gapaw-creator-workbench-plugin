@@ -9,6 +9,51 @@ use std::path::Path;
 const DAY_LIMIT: usize = 60;
 const LIST_LIMIT: usize = 200;
 
+/// Prioritize only recorded, unanswered correspondence. Age changes visibility,
+/// never business state; old negotiations and uncertain dates remain prominent.
+fn attention(db: &Connection, now: i64) -> rusqlite::Result<Value> {
+    let mut stmt = db.prepare(
+        "WITH latest AS (
+           SELECT m.*,row_number() OVER (PARTITION BY creator
+             ORDER BY julianday(at) DESC,CASE WHEN direction='out' THEN 1 ELSE 0 END DESC,rowid DESC) AS position
+           FROM messages m
+         )
+         SELECT c.id,c.handle,m.at,m.subject,n.creator,n.status,n.their_ask,unixepoch(m.at)
+         FROM latest m JOIN creators c ON c.id=m.creator
+         LEFT JOIN negotiations n ON n.creator=m.creator
+         WHERE m.position=1 AND m.direction='in' AND coalesce(m.kind,'')<>'自动回复'
+           AND (n.creator IS NULL OR (coalesce(n.status,'') NOT LIKE '%结案%'
+                AND coalesce(n.status,'') NOT LIKE '%无真人%'))
+         ORDER BY julianday(m.at) DESC,c.id",
+    )?;
+    let mut groups =
+        json!({"negotiations":[],"recent":[],"earlier":[],"undated":[],"windowDays":7});
+    for row in stmt.query_map([], |r| {
+        let negotiation = r.get::<_, Option<String>>(4)?.is_some();
+        Ok((
+            r.get::<_, Option<i64>>(7)?,
+            negotiation,
+            json!({"id":r.get::<_,String>(0)?,"handle":r.get::<_,Option<String>>(1)?,
+                "at":r.get::<_,Option<String>>(2)?,"subject":short(r.get(3)?,120),
+                "kind":if negotiation {"negotiation"} else {"mail"},
+                "status":short(r.get(5)?,80),"theirAsk":short(r.get(6)?,120)}),
+        ))
+    })? {
+        let (at, negotiation, item) = row?;
+        let group = match at {
+            None => "undated",
+            Some(at) if at > now => "undated",
+            Some(_) if negotiation => "negotiations",
+            Some(at) if at >= now - 7 * 24 * 60 * 60 => "recent",
+            Some(_) => "earlier",
+        };
+        groups[group].as_array_mut().unwrap().push(item);
+    }
+    // Handle the longest-waiting negotiations first, regardless of their age.
+    groups["negotiations"].as_array_mut().unwrap().reverse();
+    Ok(groups)
+}
+
 fn short(s: Option<String>, max: usize) -> String {
     s.unwrap_or_default().chars().take(max).collect()
 }
@@ -185,6 +230,7 @@ fn business(path: &Path) -> rusqlite::Result<Value> {
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
     Ok(json!({
+        "attention": attention(&db, now_secs() as i64)?,
         "newMail": new_mail,
         "days": days,
         "funnel": {"creators": creators, "contacted": contacted.len(), "replied": replied.len(),
@@ -240,7 +286,8 @@ fn status(path: &Path) -> Result<Value> {
         business(&bp).map_err(|_| "读取本地工作台失败，请稍后重试")?
     } else {
         json!({"days":{}, "funnel":{"creators":0,"contacted":0,"replied":0,"interested":0,"negotiating":0,"confirmed":0},
-               "negotiations":[], "silent":[], "silentTotal":0, "newMail":[], "outbox":{}, "recentOutreach":[]})
+               "negotiations":[], "silent":[], "silentTotal":0, "newMail":[], "outbox":{}, "recentOutreach":[],
+               "attention":{"negotiations":[],"recent":[],"earlier":[],"undated":[],"windowDays":7}})
     };
     out["workbench"] = json!({"initialized": local["initialized"], "active": local["active"]});
     out["rehearsal"] = rehearsal(path);
@@ -372,6 +419,61 @@ mod tests {
         assert_eq!(r["silent"], json!([]));
         assert!(!f.root.join("workbench.sqlite").exists());
         assert!(execute("office-status", json!({"x":1}), &f.state()).is_err());
+    }
+
+    #[test]
+    fn attention_groups_pending_mail_without_hiding_old_negotiations() {
+        let f = F::new();
+        execute_init(&f);
+        let bp = crate::local_backend::business_path(&f.state()).unwrap();
+        let db = Connection::open(&bp).unwrap();
+        for id in [
+            "old", "deal", "closed", "auto", "answered", "offset", "missing", "future", "boundary",
+            "new",
+        ] {
+            db.execute(
+                "INSERT INTO creators(id,handle,profile,settings) VALUES(?,?,'{}','{}')",
+                [id, id],
+            )
+            .unwrap();
+        }
+        for (id, creator, direction, at, kind) in [
+            ("1", "old", "in", "2026-10-01T04:00:00Z", "正常"),
+            ("2", "deal", "in", "2026-10-01T04:00:00Z", "正常"),
+            ("3", "closed", "in", "2026-11-06T04:00:00Z", "正常"),
+            ("4", "auto", "in", "2026-11-05T04:00:00Z", "正常"),
+            ("5", "auto", "in", "2026-11-06T04:00:00Z", "自动回复"),
+            ("6", "answered", "in", "2026-11-05T04:00:00Z", "正常"),
+            ("7", "answered", "out", "2026-11-06T04:00:00Z", "正常"),
+            ("8", "offset", "in", "2026-11-06T12:00:00+08:00", "正常"),
+            ("9", "offset", "out", "2026-11-06T05:00:00Z", "正常"),
+            ("10", "missing", "in", "not-a-date", "正常"),
+            ("11", "future", "in", "2026-11-08T04:00:00Z", "正常"),
+            ("12", "boundary", "in", "2026-10-31T12:00:00+08:00", "正常"),
+            ("13", "new", "in", "2026-11-06T04:00:00Z", "正常"),
+        ] {
+            db.execute("INSERT INTO messages(id,creator,direction,at,kind,subject,body) VALUES(?,?,?,?,?,'Fixture subject','private body')", [id, creator, direction, at, kind]).unwrap();
+        }
+        db.execute("INSERT INTO negotiations(creator,status) VALUES('deal','对方还价'),('closed','已结案')", []).unwrap();
+        let before = fs::read(&bp).unwrap();
+        let now = chrono::DateTime::parse_from_rfc3339("2026-11-07T04:00:00Z")
+            .unwrap()
+            .timestamp();
+        let result = attention(&db, now).unwrap();
+        let ids = |key: &str| {
+            result[key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x["id"].as_str().unwrap())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids("negotiations"), vec!["deal"]);
+        assert_eq!(ids("recent"), vec!["new", "boundary"]);
+        assert_eq!(ids("earlier"), vec!["old"]);
+        assert_eq!(ids("undated"), vec!["future", "missing"]);
+        assert!(!result.to_string().contains("private body"));
+        assert_eq!(before, fs::read(&bp).unwrap());
     }
 
     #[test]

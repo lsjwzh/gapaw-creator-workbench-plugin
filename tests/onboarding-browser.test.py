@@ -99,6 +99,8 @@ def main():
             run('local-workbench-init', {'confirmed': True})
             for i in range(2):
                 sql('INSERT INTO creators(id,handle,profile,settings) VALUES(?,?,?,?)', (f'C{i}', f'隔离达人{i}', json.dumps({'products': '宠物护理', 'topic': '养犬', 'anchor1': '已核实来源'}), json.dumps({'product_checked': True})))
+            for i in range(80):
+                sql("INSERT INTO creators(id,handle,profile,settings) VALUES(?,?,'{}','{}')", (f'P{i:03}', f'picker_{i:03}'))
             run('team-configure', {'expectedVersion': 0, 'workspace': {'dirId': 'fixture-dir', 'path': workspace}, 'runtime': {'cli': 'codex-exp', 'model': '隔离测试', 'provider': '隔离线路'}})
             for r in run('team-prepare')['staff']:
                 task = 'tsk_' + r['key']
@@ -122,6 +124,47 @@ def main():
                 page.locator('#product').fill('隔离验收产品')
                 page.locator('#market').fill('英语市场')
                 page.locator('#criteria').fill('真实内容与可核对来源')
+                picker = page.locator('.candidate-picker')
+                expect(picker.locator('#candidate-list input')).to_have_count(40)
+                picker.get_by_role('button', name='再显示 40 位').click()
+                expect(picker.locator('#candidate-list input')).to_have_count(80)
+                search = picker.get_by_role('searchbox', name='搜索达人账号或编号')
+                search.fill('@PICKER_079')
+                expect(picker.locator('#candidate-list input')).to_have_count(1)
+                picker.locator('#candidate-list input').check()
+                search.fill('C0')
+                picker.locator('#candidate-list input').check()
+                expect(picker.locator('.candidate-count')).to_contain_text('已选 2 / 20')
+                picker.get_by_role('button', name='已选', exact=True).click()
+                search.fill('no-match')
+                expect(picker.locator('.candidate-results')).to_contain_text('没有符合')
+                expect(picker.locator('.candidate-chip')).to_have_count(2)
+                picker.get_by_role('button', name='清除搜索', exact=True).click()
+                expect(picker.locator('#candidate-list input')).to_have_count(2)
+                page.screenshot(path=str(SHOTS / 'candidate-search-desktop.png'), full_page=True)
+                picker.get_by_role('button', name='取消选择 @picker_079', exact=True).click()
+                expect(picker.locator('.candidate-count')).to_contain_text('已选 1 / 20')
+                picker.get_by_role('button', name='全部', exact=True).click()
+                search.fill('picker_0')
+                for i in range(19):
+                    picker.locator(f'input[value="P{i:03}"]').check()
+                expect(picker.locator('.candidate-count')).to_contain_text('已选 20 / 20')
+                expect(picker.locator('input[value="P019"]')).to_be_disabled()
+                expect(picker.locator('input[value="P000"]')).to_be_enabled()
+                picker.get_by_role('button', name='未选', exact=True).click()
+                expect(picker.locator('#candidate-list input:checked')).to_have_count(0)
+                for i in range(19):
+                    picker.get_by_role('button', name=f'取消选择 @picker_{i:03}', exact=True).click()
+                picker.get_by_role('button', name='全部', exact=True).click()
+                search.fill('C0')
+                for width in [390, 320]:
+                    page.set_viewport_size({'width': width, 'height': 844})
+                    page.screenshot(path=str(SHOTS / f'candidate-search-mobile-{width}.png'), full_page=True)
+                    overflow = page.evaluate('''() => Array.from(document.querySelectorAll('body *')).filter(e => e.getBoundingClientRect().right > innerWidth).map(e => ({tag:e.tagName, id:e.id, cls:e.className, width:e.getBoundingClientRect().width, right:e.getBoundingClientRect().right}))''')
+                    assert page.evaluate('document.documentElement.scrollWidth-document.documentElement.clientWidth') <= 0, overflow
+                page.screenshot(path=str(SHOTS / 'candidate-search-mobile.png'), full_page=True)
+                page.set_viewport_size({'width': 1440, 'height': 1050})
+                assert run('team-onboarding-status')['config']['revision'] == 0, 'Local selection must not save settings'
                 page.locator('#candidate-list input').first.check()
                 page.get_by_role('button', name='保存目标，认识团队', exact=True).click()
                 expect(page.locator('#role-prompt')).to_be_visible()
@@ -183,6 +226,7 @@ def main():
                 assert not errors, errors
                 assert sql('SELECT count(*) FROM drafts')[0][0] == 0
                 assert sql("SELECT count(*) FROM messages WHERE direction='out'")[0][0] == 0
+                page.close()
                 browser.close()
         finally:
             server.shutdown()
